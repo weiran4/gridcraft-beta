@@ -16,7 +16,13 @@
 
 ## 本地使用
 
-Windows 双击 `start.bat`，或 `npm start`，打开 http://127.0.0.1:4189/ 。Python 仅用于本地静态文件服务；线上用户不需要安装 Python 或 Node。
+1. 从 GitHub 下载 ZIP，**完整解压**后进入项目文件夹。
+2. 双击 `start.bat`：自动检测 Python、启动静态服务，确认就绪后打开默认浏览器。
+3. 使用时保持启动窗口打开；关闭窗口或按 Ctrl+C 即可停止。
+
+需要 Python 3.9+；未安装时脚本会显示官方下载地址和 PATH 提示。不需要 Node、npm install 或第三方 Python 包。重复双击会复用同一目录已启动的服务；默认端口 4189 被其他程序占用时尝试后续端口并提示（浏览器数据按端口隔离）。支持中文和带空格的项目路径。也可运行 `python scripts/launch.py`；`npm start` 保留为普通静态服务命令。
+
+Python 仅用于本地预览；线上静态站点的用户不需要安装 Python 或 Node。
 
 ## 默认 PV 范例
 
