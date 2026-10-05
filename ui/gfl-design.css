@@ -31,3 +31,5 @@ body.design-page{height:auto;overflow:auto;background:#f4f6f7;color:#253744}.des
 .filter-fields math{font-size:15px;height:29px}.filter-fields label{display:flex;align-items:center;gap:3px;height:23px}
 .filter-fields input{width:65px;min-width:0;height:22px;padding:1px 3px;border:1px solid #b9c9d1;border-radius:2px;font:13px "Times New Roman",serif;color:#243844;background:white}
 .filter-fields input[aria-invalid="true"]{border-color:#b52f26;background:#fff0ed}
+
+.scr-option{padding:12px 15px;margin:0 0 18px;border:1px solid #c5dcd7;background:#f2f9f7;border-radius:4px}.scr-option>label{display:flex;align-items:center;gap:9px;font-weight:600}.scr-option input[type=checkbox]{width:17px;height:17px;accent-color:#087e75}.scr-option p{margin:6px 0 0}

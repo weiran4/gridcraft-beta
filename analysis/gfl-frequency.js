@@ -1,4 +1,5 @@
-import {outerModels} from './gfl-outer.js?v=outer1';
+import {gflGridResponse} from './gfl-grid.js?v=scr1';
+import {outerModels} from './gfl-outer.js?v=scr1';
 
 import {measurementFilters} from './measurement-filters.js?v=filters1';
 const add=(a,b)=>({re:a.re+b.re,im:a.im+b.im});
@@ -10,6 +11,7 @@ export function validateGains(gains){
 }
 export function loopResponse(input,gains,hz){
  validateGains(gains);if(!(hz>0))throw Error('频率必须大于0');
+ if(input.considerScr===true)return gflGridResponse(input,gains,hz);
  const w=2*Math.PI*hz,Zb=input.voltageLL**2/input.ratedVA,Td=input.delaySamples/input.fs;
  const plant=div({re:Zb,im:0},{re:input.R,im:w*input.L});
  const delay={re:Math.cos(-w*Td),im:Math.sin(-w*Td)};

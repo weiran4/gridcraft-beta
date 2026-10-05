@@ -3,8 +3,8 @@
  * PCC voltage feedforward uses Hv. Grid-current feedforward is instantaneous.
  * Does not certify the coupled dq / forming-outer-loop / sampled-data system.
  */
-import {crossings} from './gfl-frequency.js?v=outer1';
-import {isHurwitz} from './gfl-autotune.js?v=autotune1';
+import {crossings} from './gfl-frequency.js?v=scr1';
+import {isHurwitz} from './gfl-autotune.js?v=scr1';
 export const loops=['d','q','P','Q']; // P/Q are voltage d/q here, for shared plotting only.
 const c=(re,im=0)=>({re,im}),one=c(1);
 const add=(a,b)=>c(a.re+b.re,a.im+b.im),neg=a=>c(-a.re,-a.im),mul=(a,b)=>c(a.re*b.re-a.im*b.im,a.re*b.im+a.im*b.re);
@@ -19,18 +19,18 @@ export function validateGfmInput(p){
  for(const k of ['feedforwardCurrent','feedforwardVoltage'])if(!Number.isFinite(p[k])||p[k]<0||p[k]>1)throw Error('前馈系数须在 0–1 之间。');
  if(p.pm<30||p.pm>=90)throw Error('目标相位裕度须在 30°（含）至 90°（不含）之间。');
  if(p.fi>=p.fs/2||p.fv>=p.fi)throw Error('电压交越须低于电流交越，电流交越须低于 1/(2Ts)。');
- if(p.gridR===0&&p.gridL===0)throw Error('理想刚性电网钳位 PCC 电压，不能按此模型整定电压环。');
+ if(p.considerScr!==false&&p.gridR===0&&p.gridL===0)throw Error('理想刚性电网钳位 PCC 电压，不能按此模型整定电压环。');
 }
 export function validateGfmGains(g){for(const k of loops)for(const f of ['kp','ki'])if(!Number.isFinite(g?.[k]?.[f])||g[k][f]<0)throw Error('PI 增益必须为非负有限数。');}
 export function gfmResponse(p,g,hz){
  const w=2*Math.PI*hz,Zb=p.voltageLL**2/p.ratedVA;
- const zl=c(p.R,w*p.L),zc=c(p.Rc,-1/(w*p.C)),zg=c(p.gridR,w*p.gridL),zp=div(mul(zc,zg),add(zc,zg));
+ const zl=c(p.R,w*p.L),zc=c(p.Rc,-1/(w*p.C)),zg=c(p.gridR,w*p.gridL),zp=p.considerScr===false?zc:div(mul(zc,zg),add(zc,zg));
  const hi=div(one,c(1,w*p.filterCurrentMs/1000)),hv=div(one,c(1,w*p.filterVoltageMs/1000)),D=c(Math.cos(-w*p.delaySamples/p.fs),Math.sin(-w*p.delaySamples/p.fs));
- const A=scale(add(zl,mul(add(one,neg(scale(mul(D,hv),p.feedforwardVoltage))),zp)),1/Zb);
+ const A=p.considerScr===false?scale(zl,1/Zb):scale(add(zl,mul(add(one,neg(scale(mul(D,hv),p.feedforwardVoltage))),zp)),1/Zb);
  const C=k=>c(g[k].kp,-g[k].ki/w),open={},closed={};
  for(const k of ['d','q']){const forward=div(mul(C(k),D),A);open[k]=mul(forward,hi);closed[k]=div(forward,add(one,open[k]));}
  for(const [k,i] of [['P','d'],['Q','q']]){
-  const T=closed[i],plant=div(scale(mul(T,zp),1/Zb),add(one,neg(scale(mul(T,div(zp,zg)),p.feedforwardCurrent))));
+  const T=closed[i],plant=div(scale(mul(T,zp),1/Zb),add(one,neg(scale(mul(T,(p.considerScr===false?c(0):div(zp,zg))),p.feedforwardCurrent))));
   const forward=mul(C(k),plant);open[k]=mul(forward,hv);closed[k]=div(forward,add(one,open[k]));
  }
  return {open,closed};
@@ -38,6 +38,11 @@ export function gfmResponse(p,g,hz){
 export function gfmPolynomials(p,g){
  // Exact zero-delay characteristic polynomials, ascending powers of s.
  if(p.delaySamples!==0)throw Error('含纯延时时不使用有限阶 Routh 判据。');
+ if(p.considerScr===false){
+  const Z=p.voltageLL**2/p.ratedVA,Hi=[1,p.filterCurrentMs/1000],Hv=[1,p.filterVoltageMs/1000],Nc=[1,p.Rc*p.C],Dp=[0,p.C],out={};
+  for(const [i,v]of [['d','P'],['q','Q']]){const ni=pm([g[i].ki,g[i].kp],Hi,[Z]),di=pa(pm([0,1],Hi,[p.R,p.L]),pm([g[i].ki,g[i].kp],[Z]));out[i]=di;out[v]=pa(pm([0,1],Hv,di,Dp),pm([g[v].ki,g[v].kp],ni,Nc,[1/Z]));}
+  return out;
+ }
  const Zb=p.voltageLL**2/p.ratedVA,Hi=[1,p.filterCurrentMs/1000],Hv=[1,p.filterVoltageMs/1000],Nc=[1,p.Rc*p.C];
  const Np=pm(Nc,[p.gridR,p.gridL]),Dp=[1,p.C*(p.Rc+p.gridR),p.C*p.gridL];
  const A=pa(pm([p.R,p.L],Dp,Hv),pm(pa(Hv,[-p.feedforwardVoltage]),Np)),out={};
@@ -75,12 +80,12 @@ export function autoTuneGfm(p){
   }
   try{
    tune('d',Math.min(p.fi,p.fs/10)*.65**attempt,.2);g.q={...g.d};details.q={...details.d};
-   tune('P',Math.min(p.fv,details.d.frequency/5)*.65**attempt,p.feedforwardCurrent===1?.2:5);g.Q={...g.P};details.Q={...details.P};
+   tune('P',Math.min(p.fv,details.d.frequency/5)*.65**attempt,(p.considerScr===false||p.feedforwardCurrent===1)?.2:5);g.Q={...g.P};details.Q={...details.P};
    const sweep=gfmSweep(p,g,'open',1801,Math.min(.00001,details.P.frequency/100));
    for(const k of loops){const xs=crossings(sweep.series[k]);if(xs.length!==1||xs[0].margin<p.pm-.2)throw Error(k+' 环存在多次交越或裕度不足：'+JSON.stringify(xs));details[k]={...details[k],...xs[0],requested:['d','q'].includes(k)?p.fi:p.fv};}
    const stable=p.delaySamples===0?Object.fromEntries(Object.entries(gfmPolynomials(p,g)).map(([k,v])=>[k,isHurwitz(v)])):null;
    if(stable&&Object.values(stable).some(x=>!x))throw Error('Routh 校核未通过。');
-   return {gains:g,loops:details,stability:stable,targetMargin:p.pm,policy:'gfm-scalar-rc-grid-filtered-feedforward-v1'};
+   return {gains:g,loops:details,stability:stable,targetMargin:p.pm,policy:p.considerScr===false?'gfm-local-rc-ideal-decoupling-v1':'gfm-scalar-rc-grid-filtered-feedforward-v1'};
   }catch(e){lastError=e.message;}
  }
  throw Error('未找到通过当前模型校核的 PI：'+lastError+' 请检查前馈、测量滤波或降低目标交越。');

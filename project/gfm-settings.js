@@ -8,7 +8,7 @@ export function gfmSettings(project,id){
  if(saved.fs===undefined&&project.extensions?.gfmSetup?.[id]?.controlStepSeconds>0)common.fs=1/project.extensions.gfmSetup[id].controlStepSeconds;
  const modes={droop:{mp:1,nq:5},vsg:{h:1,d:100,nq:5,kv:10},sync:{h:1,d:100,nq:5,ke:10}};
  for(const k of Object.keys(modes))for(const f of Object.keys(modes[k]))if(saved.modes?.[k]?.[f]!==undefined)modes[k][f]=saved.modes[k][f];
- return {...common,gainBank:structuredClone(saved.gainBank||{}),mode:Object.hasOwn(gfmModes,saved.mode)?saved.mode:'droop',modes,gains:saved.gains?structuredClone(saved.gains):null,manual:saved.manual===true};
+ return {...common,considerScr:saved.considerScr===true,gainBank:structuredClone(saved.gainBank||{}),mode:Object.hasOwn(gfmModes,saved.mode)?saved.mode:'droop',modes,gains:saved.gains?structuredClone(saved.gains):null,manual:saved.manual===true};
 }
 export function gfmContext(project,id){
  const ibr=project.components.find(c=>c.id===id&&c.type==='gfm');if(!ibr)throw Error('指定 GFM 不存在，请从电路中的 GFM 元件打开。');

@@ -21,7 +21,7 @@ export function controlDiagram(gains,recommended,settings={}){
  }).join('');
  return '<rect x="'+x+'" y="'+y+'" width="185" height="140" class="pi-box"/>'+text(x+65,y+22,'PI '+names[loop],'block-title')+'<foreignObject x="'+(x+8)+'" y="'+(y+29)+'" width="169" height="106"><div xmlns="http://www.w3.org/1999/xhtml" class="gain-fields">'+fields+'</div></foreignObject>';
  }
- const plant=y=>'<rect x="820" y="'+(y-30)+'" width="165" height="60" class="plant"/>'+text(832,y-7,'电压生成 / RL 对象')+text(833,y+16,'PCC 电压与 dq 耦合');
+ const plant=y=>'<rect x="820" y="'+(y-30)+'" width="165" height="60" class="plant"/>'+text(832,y-7,settings.considerScr?'电压 / RC / 电网':'电压生成 / RL 对象')+text(833,y+16,'PCC 电压与 dq 耦合');
  const feedback=(x,y,name)=>label(x,y+165,name)+path('M'+x+' '+(y+146)+'V'+(y+14),'feedback')+text(x+9,y+36,'−')+filterBox(x,y+80,x===80?(name==='Vdc'?'vdc':name==='Vac'?'voltage':'pq'):'current',name+' 反馈');
  const decoupling=(y,name,sign)=>label(790,y+96,'(ω/ωb) Lf '+name+'f')+path('M760 '+(y+78)+'V'+(y+14),'decoupling')+text(769,y+36,sign);
  return '<svg id="controlDiagram" viewBox="0 0 1100 870" role="group" aria-label="可选外环双环控制；远距离信号用同名变量标签相连，含电压前馈与dq解耦"><defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#263743"/></marker></defs>'+

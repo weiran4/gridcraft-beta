@@ -3,7 +3,7 @@ import {demo} from '../examples/demo.js';
 import {gfmContext,gfmSettings} from '../project/gfm-settings.js';
 import {autoTuneGfm} from '../analysis/gfm-pi.js';
 import {gfmDynamicModel,analyzeGfmMode,tuneGfmCoupled} from '../analysis/gfm-dynamics.js';
-const project=demo('gfm480'),s=gfmSettings(project,'GFM1'),p={...gfmContext(project,'GFM1'),...s},seed=autoTuneGfm(p).gains,rows=[];
+const project=demo('gfm480'),s=gfmSettings(project,'GFM1'),p={...gfmContext(project,'GFM1'),...s,considerScr:true},seed=autoTuneGfm(p).gains,rows=[];
 for(const mode of ['droop','vsg','sync']){
  const tuned=await tuneGfmCoupled(p,seed,mode,s.modes[mode]);
  for(const [name,input,g] of [['baseline',p,seed],['tuned',p,tuned.gains],['delay-bypass',{...p,delaySamples:1.5,filterPqMs:0,filterVoltageMs:0,filterCurrentMs:0},tuned.gains],['changed-pq',{...p,activePowerW:.8e6,reactivePowerVar:.1e6},tuned.gains]]){

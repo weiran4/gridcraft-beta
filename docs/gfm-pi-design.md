@@ -62,3 +62,8 @@ Td=N·Ts。内环频响使用精确 exp(−sTd)；耦合极点在非零延时时
 模型未包含限流、饱和、开关、数字执行细节和直流能量动态；小信号稳定不替代大扰动验证。
 
 公开原理参考：[Imperix VSG](https://imperix.com/doc/implementation/virtual-synchronous-generator-for-droop-control)、[Zhong & Weiss: Synchronverters](https://www.eng.tau.ac.il/~gweiss/art97_IEEE.pdf)。电路和联动实现按本文方程独立构建。
+
+
+## Optional SCR analysis
+
+The PI page defaults `considerScr` to false and stores the choice per inverter. With the option off, the local scalar Lf/RC model assumes ideal voltage feedforward/decoupling and fixed external load-current disturbance. Grid R/L, current feedforward F, voltage feedforward av and forming-layer parameters do not affect this local tuning. It does not solve a grid operating point or report coupled poles. With the option on, the network and the coupled three-mode analysis described above participate. Manual PI values are retained when switching; automatic PI is recomputed. This option does not introduce a PLL model.

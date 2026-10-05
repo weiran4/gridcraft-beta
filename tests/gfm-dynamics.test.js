@@ -1,7 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {eigenvalues} from '../analysis/eigenvalues.js';import {gfmOperatingPoint,gfmDynamicModel,analyzeGfmMode,tuneGfmCoupled} from '../analysis/gfm-dynamics.js';
 import {demo} from '../examples/demo.js';import {gfmContext,gfmSettings} from '../project/gfm-settings.js';import {autoTuneGfm} from '../analysis/gfm-pi.js';
-const d=demo('gfm480'),s=gfmSettings(d,'GFM1'),p={...gfmContext(d,'GFM1'),...s},g=autoTuneGfm(p).gains;
+const d=demo('gfm480'),s={...gfmSettings(d,'GFM1'),considerScr:true},p={...gfmContext(d,'GFM1'),...s},g=autoTuneGfm(p).gains;
 test('complex QR finds known real and complex eigenvalues across scales',()=>{const e=eigenvalues([[-2,-3,0],[3,-2,0],[0,0,-100000]]);assert.ok(e.some(z=>Math.abs(z.re+2)<1e-8&&Math.abs(z.im-3)<1e-8));assert.ok(e.some(z=>z.re===-100000));assert.ok(eigenvalues([[1,4],[0,-2]]).some(z=>z.re===1));});
 test('all GFM modes have true stationary operating points and distinct dynamics',()=>{const a=Object.fromEntries(['droop','vsg','sync'].map(mode=>[mode,gfmDynamicModel(p,g,mode,s.modes[mode])]));for(const m of Object.values(a)){assert.ok(m.residual<1e-7);assert.ok(Math.abs(Math.hypot(...m.op.eg)-p.gridVoltagePu)<1e-10);}assert.equal(a.droop.names.includes('omega'),false);assert.equal(a.vsg.names.includes('emf'),true);assert.notDeepEqual(a.vsg.A,a.sync.A);assert.ok(a.droop.A.some((row,i)=>row.some((v,j)=>i!==j&&v!==0)));});
 test('forming parameters, PQ sensors, grid and operating PQ change poles',()=>{const alpha=(input,mode,m)=>analyzeGfmMode(input,g,mode,m).alpha;

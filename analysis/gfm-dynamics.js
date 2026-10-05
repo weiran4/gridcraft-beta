@@ -1,5 +1,5 @@
 import {eigenvalues} from './eigenvalues.js?v=gfm2';
-import {validateGfmInput,validateGfmGains} from './gfm-pi.js?v=gfm-pi1';
+import {validateGfmInput,validateGfmGains} from './gfm-pi.js?v=scr1';
 export function gfmOperatingPoint(p){
  const Z=p.voltageLL**2/p.ratedVA,w=2*Math.PI*p.frequencyHz,r=p.gridR/Z,x=w*p.gridL/Z,P=p.activePowerW/p.ratedVA,Q=p.reactivePowerVar/p.ratedVA,E=p.gridVoltagePu??1;
  const b=E*E+2*(r*P+x*Q),disc=b*b-4*(r*r+x*x)*(P*P+Q*Q);
@@ -8,6 +8,7 @@ export function gfmOperatingPoint(p){
  return {Z,w,P,Q,V,ig,ic,il,vc,eg,u,currentPu:Math.hypot(...il),modulation:2*Math.sqrt(2/3)*p.voltageLL*Math.hypot(...u)/p.dcVoltage,voltageLL:V*p.voltageLL};
 }
 export function gfmDynamicModel(p,g,mode,m){
+ if(p.considerScr===false)throw Error('SCR 未启用，不能运行并网 dq 耦合校核。');
  validateGfmInput(p);validateGfmGains(g);if(!['droop','vsg','sync'].includes(mode))throw Error('未知成网模式。');
  for(const k of mode==='droop'?['mp','nq']:['h','d','nq',mode==='vsg'?'kv':'ke'])if(!Number.isFinite(m[k])||m[k]<=0)throw Error(k+' 必须为正数。');
  if(p.gridL<=0)throw Error('耦合动态模型需要正的电网电感。');
@@ -56,7 +57,7 @@ export function analyzeGfmMode(p,g,mode,m){const model=gfmDynamicModel(p,g,mode,
 // Search near the scalar design; retain its margin/spacing constraints and
 // require the selected complete dq mode to have poles strictly in the left half-plane.
 export async function tuneGfmCoupled(p,seed,mode,m,progress=()=>{}){
- let best=null,checked=0;const {gfmSweep,gfmPolynomials}=await import('./gfm-pi.js?v=gfm-pi1');const {crossings}=await import('./gfl-frequency.js?v=outer1');const {isHurwitz}=await import('./gfl-autotune.js?v=autotune1');
+ let best=null,checked=0;const {gfmSweep,gfmPolynomials}=await import('./gfm-pi.js?v=scr1');const {crossings}=await import('./gfl-frequency.js?v=scr1');const {isHurwitz}=await import('./gfl-autotune.js?v=scr1');
  for(const ip of [.5,1,2,4])for(const ii of [.1,1,5])for(const vp of [.15,.5,1,2])for(const vi of [.003,.01,.03,.1,.3,1]){
   const g={d:{kp:seed.d.kp*ip,ki:seed.d.ki*ii},q:{kp:seed.q.kp*ip,ki:seed.q.ki*ii},P:{kp:seed.P.kp*vp,ki:seed.P.ki*vi},Q:{kp:seed.Q.kp*vp,ki:seed.Q.ki*vi}};checked++;
   if(checked%24===0){progress(checked,288);await new Promise(resolve=>setTimeout(resolve,0));}

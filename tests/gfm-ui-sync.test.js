@@ -4,7 +4,7 @@ import {demo} from '../examples/demo.js';
 import {serializeProject,parseProject} from '../project/model.js';
 
 test('GFM automatic edit merges an unrelated remote update received during tuning',async()=>{
- let raw=serializeProject(demo('gfm480'));
+ const project=demo('gfm480');project.extensions.gfmPi={GFM1:{considerScr:true}};let raw=serializeProject(project);
  const elements=new Map(),handlers={},windowHandlers={};
  function element(id){if(!elements.has(id))elements.set(id,{id,dataset:{},disabled:false,value:id==='bodeMode'?'open':'',innerHTML:'',textContent:'',setAttribute(){},removeAttribute(){},getAttribute(){return null;},checkValidity(){return true;}});return elements.get(id);}
  const controls=['retune','exportPi','bodeMode'].map(element);

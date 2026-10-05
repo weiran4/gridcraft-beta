@@ -30,10 +30,10 @@ export function gfmDiagram(g,s){
  svg+=text(710,430,'P/Q：PCC 送网电流 ig 与 PCC 电压 v','diagram-note')+text(710,455,'P = vd igd + vq igq；Q = vq igd − vd igq','diagram-note');
  svg+=`<path d="M20 492H1160" class="divider"/>`+text(20,520,'共用 dq 电压 / 电流双环 · 同名变量代表同一信号','section-title');
  for(const [a,vo,ci,y]of [['d','P','d',670],['q','Q','q',990]]){
-  svg+=text(14,y+5,'v'+a+'*')+line(`M48 ${y}H76`)+sum(90,y)+line(`M104 ${y}H140`)+pi(vo,140,y-65)+line(`M320 ${y}H346`)+sum(360,y)+line(`M374 ${y}H421`)+text(385,y-40,'iL'+a+'*')+sum(435,y)+line(`M449 ${y}H475`)+pi(ci,475,y-65)+line(`M655 ${y}H716`)+sum(730,y)+line(`M744 ${y}H776`)+sum(790,y)+line(`M804 ${y}H835`)+rect(835,y-35,230,70)+text(854,y-14,'Lf / RC / 电网 dq 电路')+text(855,y+7,'u'+a+' → iL'+a+', v'+a+', ig'+a)+text(854,y+27,s.delaySamples>0?'D(s) = exp(−sTd)':'D(s) = 1 · 零延时','diagram-note')+line(`M1065 ${y}H1110`)+text(1120,y+5,'输出');
-  svg+=text(332,y-88,'F · ig'+a)+line(`M360 ${y-76}V${y-14}`,'feedforward')+text(370,y-19,'+');
+  svg+=text(14,y+5,'v'+a+'*')+line(`M48 ${y}H76`)+sum(90,y)+line(`M104 ${y}H140`)+pi(vo,140,y-65)+line(`M320 ${y}H346`)+sum(360,y)+line(`M374 ${y}H421`)+text(385,y-40,'iL'+a+'*')+sum(435,y)+line(`M449 ${y}H475`)+pi(ci,475,y-65)+line(`M655 ${y}H716`)+sum(730,y)+line(`M744 ${y}H776`)+sum(790,y)+line(`M804 ${y}H835`)+rect(835,y-35,230,70)+text(854,y-14,s.considerScr?'Lf / RC / 电网 dq 电路':'本地 Lf / RC · 理想解耦')+text(855,y+7,'u'+a+' → iL'+a+', v'+a+', ig'+a)+text(854,y+27,s.delaySamples>0?'D(s) = exp(−sTd)':'D(s) = 1 · 零延时','diagram-note')+line(`M1065 ${y}H1110`)+text(1120,y+5,'输出');
+  svg+=text(309,y-88,(s.considerScr?'F · ig':'固定扰动 ig')+a)+line(`M360 ${y-76}V${y-14}`,'feedforward')+text(370,y-19,'+');
   svg+=text(291,y+113,'ω Cb vc'+(a==='d'?'q':'d'))+line(`M360 ${y+90}V${y+14}`,'decoupling')+text(371,y+34,a==='d'?'−':'+');
-  svg+=text(679,y-128,'av · v'+a)+filter(730,y-116,'filterVoltageMs',a+' 轴电压前馈')+line(`M730 ${y-50}V${y-14}`,'feedforward')+text(741,y-20,'+');
+  svg+=text(679,y-128,(s.considerScr?'av · v':'v')+a)+(s.considerScr?filter(730,y-116,'filterVoltageMs',a+' 轴电压前馈'):rect(675,y-116,110,66)+text(681,y-80,'理想电压前馈'))+line(`M730 ${y-50}V${y-14}`,'feedforward')+text(741,y-20,'+');
   svg+=text(733,y+113,'ω Lb iL'+(a==='d'?'q':'d')+'f')+line(`M790 ${y+90}V${y+14}`,'decoupling')+text(802,y+34,a==='d'?'−':'+');
   for(const [x,key,label,name]of [[90,'filterVoltageMs','v'+a,a+' 轴电压反馈'],[435,'filterCurrentMs','iL'+a,a+' 轴电流反馈']])svg+=text(x-12,y+191,label)+line(`M${x} ${y+174}V${y+153}`,'feedback')+filter(x,y+87,key,name)+line(`M${x} ${y+87}V${y+14}`,'feedback')+text(x+14,y+34,'−');
  }

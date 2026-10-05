@@ -1,12 +1,14 @@
+import {gflGridPolynomials} from './gfl-grid.js?v=scr1';
 import {designGflPi} from './gfl-pi.js?v=autotune1';
-import {outerModels} from './gfl-outer.js?v=outer1';
+import {outerModels} from './gfl-outer.js?v=scr1';
 import {measurementFilters} from './measurement-filters.js?v=filters1';
-import {loopResponse,frequencySweep,crossings} from './gfl-frequency.js?v=outer1';
+import {loopResponse,frequencySweep,crossings} from './gfl-frequency.js?v=scr1';
 
 // Ascending powers of s. Keep physical output tracking (not filtered output).
 const add=(a,b)=>Array.from({length:Math.max(a.length,b.length)},(_,i)=>(a[i]||0)+(b[i]||0));
 const mul=(a,b)=>{const c=Array(a.length+b.length-1).fill(0);a.forEach((x,i)=>b.forEach((y,j)=>c[i+j]+=x*y));return c;};
 export function closedLoopPolynomials(p,g){
+ if(p.considerScr===true)return gflGridPolynomials(p,g);
  const Z=p.voltageLL**2/p.ratedVA,h=measurementFilters(p),m=outerModels(p),result={},tracking={};
  for(const k of ['d','q']){
   const n=[Z*g[k].ki,Z*g[k].kp];
@@ -50,7 +52,7 @@ export function autoTuneGfl(raw){
   function at(f){
    const w=2*Math.PI*f,z=loopResponse(p,trial,f).open[k],mag=Math.hypot(z.re,z.im);
    let phase=Math.atan2(z.im,z.re)*180/Math.PI;
-   if(k==='d'||k==='q')phase=(-Math.atan2(w*p.L,p.R)-Math.atan(w*filters.current.seconds)-w*p.delaySamples/p.fs)*180/Math.PI;
+   if(!p.considerScr&&(k==='d'||k==='q'))phase=(-Math.atan2(w*p.L,p.R)-Math.atan(w*filters.current.seconds)-w*p.delaySamples/p.fs)*180/Math.PI;
    else if(phase>90)phase-=360;
    const margin=180+phase-Math.atan(ratio)*180/Math.PI;
    const kp=1/(mag*Math.sqrt(1+ratio*ratio));

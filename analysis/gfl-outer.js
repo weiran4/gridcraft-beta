@@ -4,7 +4,8 @@ export function outerContext(project,id){
  const c=project.components.find(c=>c.id===id&&c.type==='gfl');if(!c)throw Error('请选择 GFL。');
  const g=buildGraph(project),net=g.net(id+'.AC');
  const bus=project.components.find(c=>c.type==='bus'&&g.net(c.id+'.AC')===net);
- const out={dcCapacitanceF:c.extensions?.dcCapacitor?.capacitanceF??null,gridXOhm:null,gridROhm:null,gridError:''};
+ const out={dcCapacitanceF:c.extensions?.dcCapacitor?.capacitanceF??null,gridXOhm:null,gridROhm:null,gridError:'',gridCapacitanceF:0,gridCapResistanceOhm:0};
+ const rc=project.components.filter(c=>c.type==='rc'&&g.net(c.id+'.AC')===net);if(rc.length===1){out.gridCapacitanceF=rc[0].parametersSI.capacitanceF;out.gridCapResistanceOhm=rc[0].parametersSI.resistanceOhm;}if(rc.length>1){out.gridError='SCR 分析暂不支持同节点多个 RC 支路。';return out;}
  if(!bus){out.gridError='Vac 控制需要逆变器交流端同节点的母线。';return out;}
  const copy=structuredClone(project),b=copy.components.find(c=>c.id===bus.id);b.parametersSI.isPcc=true;b.parametersSI.primaryIbrId=id;
  const r=analyzeGridStrength(copy,bus.id);
@@ -22,6 +23,7 @@ export function outerModels(p){
   Object.assign(result.P,{sign:-1,gain,integrator:true,filter:'vdc',kp:2*Math.SQRT1_2*wo/gain,ki:wo**2/gain});
  }
  if(qMode==='Vac'){
+  if(p.considerScr===false)throw Error('Vac 控制需要电网电压灵敏度，请勾选“考虑电网强度（SCR）影响”，或将 q 轴外环改为 Q。');
   if(!Number.isFinite(p.gridXOhm)||p.gridXOhm<=0)throw Error(p.gridError||'Vac 控制需要正的上游电抗；理想刚性母线或纯电阻网络不适用此电压调节模型。');
   const gain=p.gridXOhm*p.ratedVA/p.voltageLL**2;
   Object.assign(result.Q,{gain,filter:'voltage',kp:wo/(wi*gain),ki:wo/gain});
