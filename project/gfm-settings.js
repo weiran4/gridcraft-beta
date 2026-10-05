@@ -8,7 +8,7 @@ export function gfmSettings(project,id){
  if(saved.fs===undefined&&project.extensions?.gfmSetup?.[id]?.controlStepSeconds>0)common.fs=1/project.extensions.gfmSetup[id].controlStepSeconds;
  const modes={droop:{mp:1,nq:5},vsg:{h:1,d:100,nq:5,kv:10},sync:{h:1,d:100,nq:5,ke:10}};
  for(const k of Object.keys(modes))for(const f of Object.keys(modes[k]))if(saved.modes?.[k]?.[f]!==undefined)modes[k][f]=saved.modes[k][f];
- return {...common,mode:Object.hasOwn(gfmModes,saved.mode)?saved.mode:'droop',modes,gains:saved.gains?structuredClone(saved.gains):null,manual:saved.manual===true};
+ return {...common,gainBank:structuredClone(saved.gainBank||{}),mode:Object.hasOwn(gfmModes,saved.mode)?saved.mode:'droop',modes,gains:saved.gains?structuredClone(saved.gains):null,manual:saved.manual===true};
 }
 export function gfmContext(project,id){
  const ibr=project.components.find(c=>c.id===id&&c.type==='gfm');if(!ibr)throw Error('指定 GFM 不存在，请从电路中的 GFM 元件打开。');
@@ -23,7 +23,7 @@ export function gfmContext(project,id){
  const copy=structuredClone(project),b=copy.components.find(c=>c.id===bus.id);b.parametersSI.isPcc=true;b.parametersSI.primaryIbrId=id;
  const grid=analyzeGridStrength(copy,bus.id);if(grid.status==='error')throw Error(grid.errors.join('；'));
  const p=ibr.parametersSI,r=rc[0].parametersSI;
- return {ratedVA:p.ratedApparentPowerVA,voltageLL:p.ratedAcVoltageV,frequencyHz:project.frequencyHz,R:p.filterResistanceOhm,L:p.filterInductanceH,C:r.capacitanceF,Rc:r.resistanceOhm,gridR:grid.zTheveninOhm.re,gridL:grid.zTheveninOhm.im/(2*Math.PI*project.frequencyHz),dcVoltage:dc[0].parametersSI.voltageV,dcResistance:dc[0].parametersSI.resistanceOhm,activePowerW:p.activePowerW,reactivePowerVar:p.reactivePowerVar,rcId:rc[0].id,dcId:dc[0].id,pccName:bus.name,scr:grid.scr};
+ return {gridVoltagePu:bus.parametersSI.ratedVoltageV/p.ratedAcVoltageV,ratedVA:p.ratedApparentPowerVA,voltageLL:p.ratedAcVoltageV,frequencyHz:project.frequencyHz,R:p.filterResistanceOhm,L:p.filterInductanceH,C:r.capacitanceF,Rc:r.resistanceOhm,gridR:grid.zTheveninOhm.re,gridL:grid.zTheveninOhm.im/(2*Math.PI*project.frequencyHz),dcVoltage:dc[0].parametersSI.voltageV,dcResistance:dc[0].parametersSI.resistanceOhm,activePowerW:p.activePowerW,reactivePowerVar:p.reactivePowerVar,rcId:rc[0].id,dcId:dc[0].id,pccName:bus.name,scr:grid.scr};
 }
 export function setGfmField(project,id,key,value){
  if(!Number.isFinite(value))throw Error('请输入有限数值。');

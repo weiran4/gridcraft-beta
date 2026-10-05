@@ -1,4 +1,6 @@
-import {gfmContext,gfmSettings,gfmModes,setGfmField} from '../project/gfm-settings.js?v=gfm-pi1';
+import {gfmDiagram} from './gfm-diagram.js?v=gfm2';
+import {analyzeGfmMode,tuneGfmCoupled} from '../analysis/gfm-dynamics.js?v=gfm2';
+import {gfmContext,gfmSettings,gfmModes,setGfmField} from '../project/gfm-settings.js?v=gfm2';
 import {autoTuneGfm,gfmSweep,gfmPolynomials,validateGfmInput,validateGfmGains} from '../analysis/gfm-pi.js?v=gfm-pi1';
 import {isHurwitz} from '../analysis/gfl-autotune.js?v=autotune1';
 import {crossings} from '../analysis/gfl-frequency.js?v=outer1';
@@ -13,30 +15,25 @@ const electrical=[['ratedVA','额定容量 S','MVA',1e6,0],['voltageLL','额定�
 const targets=[['fs','控制步长 Ts','μs'],['fi','电流交越上限','Hz'],['fv','电压交越上限','Hz'],['pm','目标相位裕度','°'],['delaySamples','纯延时 N × Ts','Ts']];
 const filters=[['filterPqMs','P/Q 时间常数','ms'],['filterVdcMs','Vdc 时间常数（预留）','ms'],['filterVoltageMs','交流电压时间常数','ms'],['filterCurrentMs','电感电流时间常数','ms'],['feedforwardCurrent','送网电流前馈 F','pu'],['feedforwardVoltage','电压前馈 av','pu']];
 const modeDefs={droop:[['mp','P–f 下垂','%'],['nq','Q–V 下垂','%']],vsg:[['h','虚拟惯量 H','s'],['d','频率阻尼 D','pu'],['nq','Q–V 下垂','%'],['kv','电压积分增益 Kv','s⁻¹']],sync:[['h','虚拟惯量 H','s'],['d','频率阻尼 D','pu'],['nq','Q–V 下垂','%'],['ke','励磁积分增益 Ke','s⁻¹']]};
-let project,id,settings,input,gains,tuning,valid=false;
+let project,id,settings,input,gains,tuning,coupled={},valid=false,busy=false,revision=0,pendingRemote=false;
 function field(k,label,unit,value,scope,min=0,max){return '<label class="field"><span>'+label+'</span><input aria-label="'+label+'" type="number" step="any" required data-'+scope+'="'+k+'" value="'+fmt(value)+'"'+(min!==null?' min="'+min+'"':'')+(max!==undefined?' max="'+max+'"':'')+'><small>'+unit+'</small></label>';}
-function read(){return {...gfmContext(project,id),...Object.fromEntries([...targets,...filters].map(([k])=>[k,settings[k]]))};}
+function read(p=project,s=settings){return {...gfmContext(p,id),...Object.fromEntries([...targets,...filters].map(([k])=>[k,s[k]]))};}
 function renderInputs(){
  input=read();$('electrical').innerHTML=electrical.map(([k,l,u,f,min])=>field(k,l,u,input[k]/f,'electrical',min)).join('');
  $('electricalNote').textContent='Cf / Rc 关联 '+input.rcId+'；'+input.pccName+'；电网 Rth='+fmt(input.gridR)+' Ω，Lth='+fmt(input.gridL*1e3)+' mH。';
  $('targets').innerHTML=targets.map(([k,l,u])=>field(k,l,u,k==='fs'?1e6/settings.fs:settings[k],'setting',k==='pm'?30:0,k==='pm'?89.999:undefined)).join('');
  $('filters').innerHTML=filters.map(([k,l,u])=>field(k,l,u,settings[k],'setting',0,k.startsWith('feedforward')?1:undefined)).join('');
- renderMode();renderFilters();
+ renderMode();
 }
 function renderMode(){
  const mode=settings.mode,m=settings.modes[mode];document.querySelectorAll('[data-mode]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.mode===mode)));
- $('modeHeading').textContent='成网参数 · '+gfmModes[mode];$('modeFields').innerHTML=modeDefs[mode].map(([k,l,u])=>field(k,l,u,m[k],'outer',.000000001)).join('');$('outerTitle').textContent=gfmModes[mode]+' · 成网层';
- const ref='P* = '+fmt(input.activePowerW/input.ratedVA)+' pu；Q* = '+fmt(input.reactivePowerVar/input.ratedVA)+' pu；V₀ = 1 pu。';
+ $('modeHeading').textContent='成网参数 · '+gfmModes[mode];$('modeFields').innerHTML=modeDefs[mode].map(([k,l,u])=>field(k,l,u,m[k],'outer',.000000001)).join('');
+ const ref='P* = '+fmt(input.activePowerW/input.ratedVA)+' pu；Q* = '+fmt(input.reactivePowerVar/input.ratedVA)+' pu；V₀ = '+fmt(coupled[mode]?.op?.V)+' pu（当前潮流工作点）。';
  const formulas={droop:'ω = 1 + mp(P* − Pf)<br>V* = V₀ + nq(Q* − Qf)<br>θ̇ = ωb·ω',vsg:'2H·ω̇ = P* − Pf − D(ω−1)<br>V̇* = Kv[(V₀−Vf)/nq + Q*−Qf]<br>θ̇ = ωb·ω',sync:'2H·ω̇ = P*/ω − Pf/ω − D(ω−1)<br>ψ̇ = Ke[(V₀−Vf)/nq + Q*−Qf]<br>V* = ω·ψ；θ̇ = ωb·ω'};
- $('outerDiagram').innerHTML=formulas[mode];$('modeExplanation').innerHTML=formulas[mode]+'<p>'+ref+'</p><p>ω 为 pu，θ 为 rad，ωb = 2πf₀；mp、nq 输入百分数，计算时除以 100；Pf/Qf 经 P/Q 滤波，Vf 经电压滤波。Vdc 滤波仅保存备用，本页没有 Vdc 外环。送网 P/Q 为正。</p>';
+ $('modeExplanation').innerHTML=formulas[mode]+'<p>'+ref+'</p><p>ω 为 pu，θ 为 rad，ωb = 2πf₀；mp、nq 输入百分数，计算时除以 100；Pf/Qf 经 P/Q 滤波，Vf 经电压滤波。Vdc 滤波仅保存备用，本页没有 Vdc 外环。送网 P/Q 为正。</p>';
 }
-function renderFilters(){
- $('feedback').innerHTML=[['filterPqMs','成网层 · P/Q（外环未校核）'],['filterVoltageMs','电压反馈与前馈'],['filterCurrentMs','电感电流反馈']].map(([k,l])=>'<div class="filter-card"><div class="filter-label">'+l+'<small>一阶低通</small></div><div class="filter-transfer"><div class="fraction"><span>1</span><span>1 + sT</span></div><label class="filter-edit">T = <input type="number" step="any" min="0" required aria-label="图内 '+l+'时间常数" data-setting="'+k+'" value="'+settings[k]+'">ms</label></div></div>').join('');
-}
-function renderGains(){
- $('piCards').innerHTML=Object.entries(labels).map(([k,l])=>'<div class="pi-card"><h3>'+l+' PI</h3><label>Kp<input type="number" step="any" min="0" required aria-label="'+l+' Kp" data-gain="'+k+'.kp" value="'+fmt(gains[k].kp)+'"></label><label>Ti<input type="text" required aria-label="'+l+' Ti" data-gain="'+k+'.ti" value="'+(gains[k].ki===0?'∞':fmt(tiFromKi(gains[k].ki)))+'"></label><small>Ti 单位 s · Ki = 1/Ti</small></div>').join('');
-}
-function invalidate(e){valid=false;$('error').textContent=e.message||String(e);$('exportPi').disabled=true;for(const n of ['bodePlot','metrics','stability','baseSummary','operatingNote'])$(n).innerHTML='';$('validation').textContent='当前输入无效，结果已清除；请修正标红字段。';$('saveStatus').textContent='修改尚未保存';}
+function renderGains(){$('diagramHost').innerHTML=gfmDiagram(gains,settings);}
+function invalidate(e){valid=false;$('error').textContent=e.message||String(e);$('exportPi').disabled=true;for(const n of ['bodePlot','metrics','stability','baseSummary','operatingNote','coupledSummary','coupledTable','polePlot','gainMode'])$(n).innerHTML='';$('validation').textContent='当前输入无效，结果已清除；请修正标红字段。';$('saveStatus').textContent='修改尚未保存';}
 function checkFields(){const bad=Array.from(document.querySelectorAll('input')).find(el=>!el.checkValidity()||el.getAttribute('aria-invalid')==='true');if(bad)throw Error('请先修正标红或空白输入。');}
 function plot(){
  validateGfmInput(input);validateGfmGains(gains);
@@ -48,39 +45,61 @@ function plot(){
  $('metrics').innerHTML='<table><thead><tr><th>环路</th><th>Kp</th><th>Ti / s</th><th>交越 / Hz</th><th>裕度 / °</th><th>零延时 Routh</th></tr></thead><tbody>'+Object.entries(labels).map(([k,l])=>{const xs=crossings(open.series[k]),warn=xs.length!==1||xs.some(x=>x.margin<input.pm-.2)||stable?.[k]===false;return '<tr class="'+(warn?'warning':'')+'"><td>'+l+'</td><td>'+fmt(gains[k].kp)+'</td><td>'+(gains[k].ki?fmt(1/gains[k].ki):'∞')+'</td><td>'+(xs.length?xs.map(x=>fmt(x.frequency)).join(' / '):'频段内无交越')+'</td><td>'+(xs.length?xs.map(x=>fmt(x.margin)).join(' / '):'—')+'</td><td>'+(stable?(stable[k]?'通过':'未通过'):'未判定')+'</td></tr>';}).join('')+'</tbody></table>';
  const Z=input.voltageLL**2/input.ratedVA,Irms=input.ratedVA/(Math.sqrt(3)*input.voltageLL),ratio=Math.hypot(input.activePowerW,input.reactivePowerVar)/input.ratedVA;
  $('baseSummary').innerHTML='<span>Zb = '+fmt(Z)+' Ω</span><span>Ib,rms = '+fmt(Irms)+' A</span><span>SCR = '+fmt(input.scr)+'</span><span>局部理想 LC = '+fmt(1/(2*Math.PI*Math.sqrt(input.L*input.C)))+' Hz</span><span>Td = '+fmt(input.delaySamples*1e6/input.fs)+' μs</span>';
- $('operatingNote').textContent='运行点 |S|/Sbase = '+fmt(ratio)+'；额定 VLL 处功率因数 '+fmt(Math.hypot(input.activePowerW,input.reactivePowerVar)?Math.abs(input.activePowerW)/Math.hypot(input.activePowerW,input.reactivePowerVar):1)+'。'+(ratio>1?'当前 P/Q 超出额定视在容量。':'')+'基波 RC 电流、内部压降及实际调制余量仍需完整运行点校核；本页未求解潮流。';
- $('operatingNote').className=ratio>1?'warning':'small-note';
- $('gainMode').textContent=(settings.manual?'手动 PI · 电气参数修改后保留增益并重新校核。':'自动 PI · 固定零点策略，目标相位裕度 ≥ '+settings.pm+'°；必要时自动降低实际交越。')+(tuning?' 建议电流 / 电压交越：'+fmt(tuning.loops.d.frequency)+' / '+fmt(tuning.loops.P.frequency)+' Hz。':'');
- $('validation').textContent=settings.manual?'手动参数已计算频响，是否满足目标请看校核表。':'自动整定完成；结果仅对应声明的标量内环模型。';
+ const dyn=coupled[settings.mode],op=dyn?.op;
+ $('operatingNote').textContent=op?'潮流工作点：PCC 电压 '+fmt(op.voltageLL)+' V；电感电流 '+fmt(op.currentPu)+' pu；所需调制比 '+fmt(op.modulation)+'。'+(op.currentPu>1?'电感电流超过额定基准，需核对器件电流能力。':'')+'直流电压按刚性电源处理；未加入限流和饱和。':'工作点不可用。';
+ $('operatingNote').className=op?.currentPu>1?'warning':'small-note';
+ $('gainMode').textContent=(settings.manual?'手动 PI · 保留增益并校核当前模式。':'自动 PI · '+gfmModes[settings.mode]+' 耦合极点约束，局部候选搜索。')+(tuning?' 电流 / 电压交越：'+fmt(tuning.loops.d.frequency)+' / '+fmt(tuning.loops.P.frequency)+' Hz。':'');
+ $('validation').textContent='标量内环频响用于裕度校核；完整 dq 参考模型结果见下方。';
+ renderCoupled();
  $('error').textContent='';$('exportPi').disabled=false;valid=true;
 }
-function refresh(force=false){
- input=read();validateGfmInput(input);
- for(const v of Object.values(settings.modes[settings.mode]))if(!Number.isFinite(v)||v<=0)throw Error('成网模式参数须为正的有限数。');
- if(force||!settings.manual||!gains){tuning=autoTuneGfm(input);gains=structuredClone(tuning.gains);settings.manual=false;}
- else tuning=null;
- renderGains();plot();$('retune').disabled=false;
+
+function renderCoupled(){
+ const d=coupled[settings.mode];
+ $('coupledSummary').textContent=gfmModes[settings.mode]+'：'+(d?.stable?'耦合小信号极点全部位于左半平面':d?.error||'存在不稳定或临界极点')+'。表中三种模式使用同一组当前 PI；切换模式后可分别自动整定。'+(input.delaySamples>0?'延时极点采用一阶 Padé 近似。':'');
+ $('coupledSummary').className=d?.stable?'small-note':'warning';
+ $('coupledTable').innerHTML='<table><thead><tr><th>模式</th><th>状态数</th><th>最大实部 / s⁻¹</th><th>最小振荡阻尼比</th><th>小信号校核</th></tr></thead><tbody>'+Object.entries(coupled).map(([k,v])=>'<tr class="'+(k===settings.mode?'selected':'')+'"><td>'+gfmModes[k]+'</td><td>'+(v.order??'—')+'</td><td>'+fmt(v.alpha)+'</td><td>'+fmt(v.damping?.[0]?.zeta)+'</td><td class="'+(v.stable?'stable':'unstable')+'">'+esc(v.error||(v.stable?'稳定':v.marginal?'临界':'不稳定'))+'</td></tr>').join('')+'</tbody></table>';
+ if(!d?.poles){$('polePlot').innerHTML='';return;}
+ const poles=d.poles.slice(0,6),min=Math.min(-1,...poles.map(z=>z.re))*1.2,max=Math.max(1,...poles.map(z=>z.re))*1.2,im=Math.max(1,...poles.map(z=>Math.abs(z.im)))*1.2,x=v=>60+690*(v-min)/(max-min),y=v=>150-115*v/im;
+ $('polePlot').innerHTML='<svg viewBox="0 0 820 320" role="img" aria-label="当前模式主导六个极点"><rect x="60" y="35" width="690" height="230" fill="#f5faf9"/><path d="M60 150H750M'+x(0)+' 35V265" stroke="#9badb5"/>'+poles.map(z=>'<circle cx="'+x(z.re)+'" cy="'+y(z.im)+'" r="4" fill="'+(z.re<0?'#087b70':'#b23b28')+'"><title>'+fmt(z.re)+' + j('+fmt(z.im)+')</title></circle>').join('')+'<text x="60" y="290">Re: '+fmt(min)+'</text><text x="660" y="290">'+fmt(max)+' s⁻¹</text><text x="65" y="25">主导六极点 · Im ±'+fmt(im)+' rad/s</text></svg>';
 }
-function save(){settings.gains=structuredClone(gains);project.extensions??={};project.extensions.gfmPi??={};project.extensions.gfmPi[id]=structuredClone(settings);const merged=shared.write(project);$('saveStatus').textContent='已同步至工程 · '+id;if(serializeProject(merged)!==serializeProject(project))queueMicrotask(()=>receive(merged));}
-function receive(p){if(!p||serializeProject(p)===serializeProject(project))return;project=p;shared.accept(p);load();}
-function load(){try{const c=project.components.find(c=>c.id===id&&c.type==='gfm');if(!c)throw Error('指定 GFM 不存在，请返回电路选择 GFM 元件。');$('identity').textContent=project.name+' · '+c.name+' · '+id;settings=gfmSettings(project,id);gains=settings.gains;renderInputs();refresh();$('saveStatus').textContent='已读取工程 · '+id;}catch(e){$('retune').disabled=true;invalidate(e);}}
-// Commit only valid edits. Invalid DOM input remains visible and blocks other changes.
-document.addEventListener('change',e=>{
- const el=e.target,k=el.dataset.electrical||el.dataset.setting||el.dataset.outer,tag=el.dataset.gain;if(!k&&!tag)return;
+function lock(on){if(on&&busy)return;busy=on;document.querySelectorAll('input,button,select').forEach(el=>{if(on){el.dataset.wasDisabled=String(el.disabled);el.disabled=true;}else if(el.dataset.wasDisabled!==undefined){el.disabled=el.dataset.wasDisabled==='true';delete el.dataset.wasDisabled;}});}
+async function apply(p,s,g,force=false,saveAfter=true){
+ const token=++revision;lock(true);
+ try{
+  const nextInput=read(p,s);validateGfmInput(nextInput);
+  for(const mode of Object.keys(gfmModes))for(const value of Object.values(s.modes[mode]))if(!Number.isFinite(value)||value<=0)throw Error('成网参数必须为正的有限数。');
+  let nextTuning=null;
+  if(force||!s.manual||!g){const seed=autoTuneGfm(nextInput);nextTuning=await tuneGfmCoupled(nextInput,seed.gains,s.mode,s.modes[s.mode],(n,total)=>{if(token===revision)$('saveStatus').textContent='校核候选 PI：'+n+' / '+total;});g=nextTuning.gains;s.manual=false;}
+  validateGfmGains(g);const results={};
+  for(const mode of Object.keys(gfmModes)){try{results[mode]=analyzeGfmMode(nextInput,g,mode,s.modes[mode]);}catch(e){if(mode===s.mode)throw e;results[mode]={error:e.message};}}
+  if(token!==revision)return;
+  project=p;settings=s;input=nextInput;gains=structuredClone(g);tuning=nextTuning;coupled=results;
+  settings.gainBank??={};settings.gainBank[settings.mode]={gains:structuredClone(gains),manual:settings.manual};
+  renderInputs();renderGains();plot();if(saveAfter)save();else $('saveStatus').textContent='已读取工程 · '+id;
+ }catch(e){if(token===revision)throw e;}finally{if(token===revision){lock(false);$('exportPi').disabled=!valid;$('retune').disabled=!settings;if(pendingRemote){pendingRemote=false;queueMicrotask(()=>receive(shared.read()).catch(invalidate));}}}
+}
+function save(){settings.gains=structuredClone(gains);project.extensions??={};project.extensions.gfmPi??={};project.extensions.gfmPi[id]=structuredClone(settings);const merged=shared.write(project);$('saveStatus').textContent='已同步至工程 · '+id;if(serializeProject(merged)!==serializeProject(project))pendingRemote=true;}
+async function receive(p){if(busy){pendingRemote=true;return;}if(!p||serializeProject(p)===serializeProject(project))return;shared.accept(p);await load(p,false);}
+async function load(p,saveAfter=true){try{const c=p.components.find(c=>c.id===id&&c.type==='gfm');if(!c)throw Error('指定 GFM 不存在，请返回电路选择 GFM 元件。');$('identity').textContent=p.name+' · '+c.name+' · '+id;const s=gfmSettings(p,id);await apply(p,s,s.gains,false,saveAfter);}catch(e){project=p;settings=gfmSettings(p,id);gains=settings.gains;coupled={};try{renderInputs();$('diagramHost').innerHTML='';$('retune').disabled=false;}catch{}invalidate(e);}}
+// Edit cloned candidates; invalid edits never reach project storage or in-memory committed values.
+document.addEventListener('change',async e=>{
+ const el=e.target,k=el.dataset.electrical||el.dataset.setting||el.dataset.outer,tag=el.dataset.gain;if((!k&&!tag)||busy)return;
  try{el.removeAttribute('aria-invalid');if(!el.checkValidity())throw Error('请输入有效参数。');checkFields();
-  if(tag){const [loop,name]=tag.split('.'),value=name==='ti'?kiFromTi(el.value):el.valueAsNumber;if(!Number.isFinite(value)||value<0)throw Error('Kp 必须非负；Ti 必须为正数或 ∞。');gains[loop][name==='ti'?'ki':'kp']=value;settings.manual=true;tuning=null;plot();save();return;}
-  const value=el.valueAsNumber;if(!Number.isFinite(value))throw Error('请输入有限数值。');
-  if(el.dataset.electrical){const factor=electrical.find(d=>d[0]===k)[3];setGfmField(project,id,k,value*factor);}
-  else if(el.dataset.outer){if(value<=0)throw Error('成网参数必须大于 0。');settings.modes[settings.mode][k]=value;}
-  else settings[k]=k==='fs'?1e6/value:value;
-  // Validate before rerendering so an invalid field never disappears.
-  input=read();validateGfmInput(input);renderInputs();refresh();save();
+  const p=structuredClone(project),s=structuredClone(settings),g=structuredClone(gains);
+  if(tag){const [loop,name]=tag.split('.'),value=name==='ti'?kiFromTi(el.value):el.valueAsNumber;if(!Number.isFinite(value)||value<0)throw Error('Kp 必须非负；Ti 必须为正数或 ∞。');g[loop][name==='ti'?'ki':'kp']=value;s.manual=true;}
+  else{const value=el.valueAsNumber;if(!Number.isFinite(value))throw Error('请输入有限数值。');
+   if(el.dataset.electrical)setGfmField(p,id,k,value*electrical.find(d=>d[0]===k)[3]);
+   else if(el.dataset.outer)s.modes[s.mode][k]=value;
+   else s[k]=k==='fs'?1e6/value:value;
+  }
+  await apply(p,s,g);
  }catch(err){el.setAttribute('aria-invalid','true');invalidate(err);}
 });
-document.addEventListener('click',e=>{const mode=e.target.dataset.mode;if(!mode)return;try{checkFields();settings.mode=mode;renderMode();plot();save();}catch(err){invalidate(err);}});
-$('retune').onclick=()=>{try{checkFields();refresh(true);save();}catch(e){invalidate(e);}};
-$('bodeMode').onchange=()=>{if(valid)try{plot();}catch(e){invalidate(e);}};
-$('exportPi').onclick=()=>{if(!valid)return;const parameters=Object.fromEntries(Object.entries(labels).map(([k,l])=>[k,{label:l,kp:gains[k].kp,tiSeconds:gains[k].ki?1/gains[k].ki:null,integratorEnabled:gains[k].ki>0,kiPerSecond:gains[k].ki}]));const data={schema:'gridcraft-gfm-pi-v1',project:project.name,ibrId:id,mode:settings.mode,modeParameters:settings.modes[settings.mode],inputs:input,parameters,piForm:'Kp + 1/(Ti*s)',convention:{current:'converter-to-grid',park:'d=cos,q=-sin',error:'reference-minus-measured',piOutputSign:1},analysisScope:'Frozen forming references; scalar ideal dq decoupling; single RC and grid RL; filtered voltage feedforward; instantaneous grid-current feedforward; no outer-mode or full dq stability certification',outerDynamicsValidated:false,manual:settings.manual,autoTuning:tuning,zeroDelayRouth:input.delaySamples===0?Object.fromEntries(Object.entries(gfmPolynomials(input,gains)).map(([k,p])=>[k,isHurwitz(p)])):null};const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='gfm-pi-'+id+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
-try{project=shared.read();if(!project)throw Error('请先在电路页面载入 BESS_GFM_demo，再选择 GFM 的 PI 参数设计。');shared.accept(project);id=new URLSearchParams(location.search).get('ibr');load();if(valid)save();}catch(e){invalidate(e);}
-window.addEventListener('storage',e=>{if(e.key===key)try{receive(shared.read());}catch(err){invalidate(err);}});
-window.addEventListener('pageshow',()=>{try{receive(shared.read());}catch(err){invalidate(err);}});
+document.addEventListener('click',async e=>{const mode=e.target.closest('[data-mode]')?.dataset.mode;if(!mode||busy)return;try{checkFields();const s=structuredClone(settings);s.gainBank??={};s.gainBank[s.mode]={gains:structuredClone(gains),manual:s.manual};s.mode=mode;const bank=s.gainBank[mode];s.manual=bank?.manual===true;await apply(structuredClone(project),s,bank?.gains||gains);}catch(err){invalidate(err);}});
+$('retune').onclick=async()=>{if(busy)return;try{checkFields();await apply(structuredClone(project),structuredClone(settings),gains,true);}catch(e){invalidate(e);}};
+$('bodeMode').onchange=()=>{if(valid&&!busy)try{plot();}catch(e){invalidate(e);}};
+$('exportPi').onclick=()=>{if(!valid||busy)return;const parameters=Object.fromEntries(Object.entries(labels).map(([k,l])=>[k,{label:l,kp:gains[k].kp,tiSeconds:gains[k].ki?1/gains[k].ki:null,integratorEnabled:gains[k].ki>0,kiPerSecond:gains[k].ki}]));const data={schema:'gridcraft-gfm-pi-v2',project:project.name,ibrId:id,mode:settings.mode,modeParameters:settings.modes,inputs:input,parameters,piForm:'Kp + 1/(Ti*s)',convention:{current:'converter-to-grid',park:'d=cos,q=-sin',error:'reference-minus-measured',piOutputSign:1},analysisScope:'Single converter, RC and grid RL; coupled dq linearization about high-voltage equilibrium; rigid DC; no saturation or current limits; synchronverter torque/flux variant with cascaded inner loops',coupledResults:coupled,selectedModeStable:coupled[settings.mode]?.stable===true,manual:settings.manual,autoTuning:tuning};const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='gfm-pi-'+id+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
+try{const p=shared.read();if(!p)throw Error('请先在电路页面载入 BESS_GFM_demo，再选择 GFM 的 PI 参数设计。');shared.accept(p);id=new URLSearchParams(location.search).get('ibr');await load(p);}catch(e){invalidate(e);}
+window.addEventListener('storage',e=>{if(e.key===key)receive(shared.read()).catch(invalidate);});
+window.addEventListener('pageshow',()=>receive(shared.read()).catch(invalidate));
