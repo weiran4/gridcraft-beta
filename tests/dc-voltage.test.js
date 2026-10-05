@@ -5,7 +5,7 @@ import {pvReferenceDemo} from '../examples/pv-reference.js';
 import {createComponent,parseProject,serializeProject} from '../project/model.js';
 const input={ratedVA:1e6,voltageLL:315,frequencyHz:50,L:63e-6,phaseAngleDeg:0,modulation:'spwm',marginPercent:5,selectedV:800};
 const near=(a,b,t=1e-6)=>assert.ok(Math.abs(a-b)<t,`${a} != ${b}`);
-test('DC design uses phase RMS, rated RMS current and the manual modulation definition',()=>{
+test('DC design uses phase RMS, rated RMS current and the phase-voltage modulation definition',()=>{
  const r=designDcVoltage(input);near(r.currentRms,1832.857997);near(r.phaseRms,181.8653348);near(r.inductorDropRms,36.2759872847);near(r.converterRms,185.448056,1e-3);
  near(r.minimumV,552.13,.1);assert.equal(r.pass,true);assert.equal(r.overmodulation,false);
  const third=designDcVoltage({...input,modulation:'third'});near(third.minimumV,r.minimumV/1.15);assert.equal(third.maxModulation,1.15);

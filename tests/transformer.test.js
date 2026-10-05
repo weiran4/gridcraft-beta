@@ -6,7 +6,7 @@ import {matchScr} from '../analysis/scr-match.js';
 import {parseProject,validateProject} from '../project/model.js';
 import {fixture,tr,rl} from './fixtures.js';
 const near=(a,b)=>assert.ok(Math.abs(a-b)<1e-8*Math.max(1,Math.abs(b)),`${a} != ${b}`);
-test('RTDS short circuit pu uses transformer rating and base frequency',()=>{
+test('Transformer short-circuit per-unit impedance uses transformer rating and base frequency',()=>{
  const p=pvReferenceDemo({ratedIbrVA:1e6}).components.find(c=>c.id==='T1').parametersSI;
  const z=transformerImpedance(p,50,false);near(z.re,1.225);near(z.im,122.5);
  const primary=transformerImpedance(p,50,true);near(primary.re,48.4);near(primary.im,4840);

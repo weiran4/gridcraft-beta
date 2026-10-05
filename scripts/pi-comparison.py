@@ -61,11 +61,11 @@ for k in labels:
         rows.append(f"| {labels[k]} | {title} | {m['crossoverHz']:.2f} | {m['phaseMarginDeg']:.2f} | {m['overshootPercent']:.2f}% | {m['rise10to90Ms']:.2f} | {m['settling2PercentMs']:.2f} |")
 report='''# PV 案例 PI 与自动整定比较
 
-日期：2026-10-04。此报告比较工具内同一连续小信号模型，不冒充 RSCAD 实测结果。
+日期：2026-10-04。此报告比较工具内同一连续小信号模型，不代表设备实测结果。
 
 ## 共同条件与判据
 
-S=1 MVA，VLL=315 V，Lf=63 μH，Rf=1 μΩ，Vdc=800 V，Cbus=0.064 F；Xth=0.0366947423694 Ω。控制步长 50 μs，等效延时 0；电流滤波 1 ms，Vdc / Vac 滤波各 10 ms。步长仅用于时间采样及频率上限，不是精确离散控制仿真。未改变案例给定的 PI 数值。
+S=1 MVA，VLL=315 V，Lf=63 μH，Rf=1 μΩ，Vdc=800 V，Cbus=0.064 F；Xth=__GRID_X__ Ω。控制步长 50 μs，等效延时 0；电流滤波 1 ms，Vdc / Vac 滤波各 10 ms。步长仅用于时间采样及频率上限，不是精确离散控制仿真。未改变案例给定的 PI 数值。
 
 PI 为 Kp + 1/(Ti*s)，积分支路不乘 Kp。案例 d: 1.5/0.02 s，q: 1/0.02 s，Vdc: 5/0.01 s，Vac: 2/0.01 s。自动参数来自保存的 beta 范例和同一整定引擎。
 
@@ -93,5 +93,6 @@ PI 为 Kp + 1/(Ti*s)，积分支路不乘 Kp。案例 d: 1.5/0.02 s，q: 1/0.02 
 
 Python、NumPy、SciPy 和 Matplotlib 仅用于本报告离线复核，不参与浏览器运行，也不进入静态发布目录。
 '''
+report=report.replace('__GRID_X__',format(p['gridXOhm'],'.12g'))
 (out/'pi-comparison.md').write_text(report,encoding='utf-8')
 print(json.dumps(metrics,indent=2))

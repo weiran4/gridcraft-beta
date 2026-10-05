@@ -4,7 +4,7 @@ import {fileURLToPath} from 'node:url';
 const root=fileURLToPath(new URL('../',import.meta.url));
 const dirs=['ui','analysis','components','core','project','examples'];
 const walk=d=>fs.readdirSync(d,{withFileTypes:true}).flatMap(e=>e.isDirectory()?walk(path.join(d,e.name)):[path.join(d,e.name)]);
-const files=['index.html','gfl.html'].map(n=>path.join(root,n)).concat(dirs.flatMap(d=>walk(path.join(root,d))));
+const files=['index.html','gfl.html','gfm.html'].map(n=>path.join(root,n)).concat(dirs.flatMap(d=>walk(path.join(root,d))));
 const errors=[];let refs=0;
 for(const file of files){
  if(!/\.(js|html|css)$/.test(file))continue;

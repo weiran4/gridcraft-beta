@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {pwmSpectrum,convertHarmonicBasis} from '../analysis/pwm-spectrum.js';
 const p={frequencyHz:50,fs:2000,modulation:.643,thirdPercent:15};
-test('PWM FFT reproduces manual PV and wind harmonics and excludes common-mode carrier',()=>{
+test('PWM FFT matches computed PV and wind harmonics and excludes common-mode carrier',()=>{
  const a=pwmSpectrum(p),h=a.harmonics.find(x=>x.order===79);
  assert.ok(Math.abs(h.phasePu-.38856)<.001);
  assert.ok(Math.abs(h.linePu-Math.sqrt(3)*h.phasePu)<.001);

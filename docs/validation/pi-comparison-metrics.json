@@ -39,12 +39,12 @@
     "Q": {
       "kp": 2,
       "tiSeconds": 0.01,
-      "crossoverHz": 7.413045508263426,
-      "phaseMarginDeg": 109.90243762196714,
-      "maxPoleReal": -24.214808916044944,
-      "overshootPercent": 16.350697704983496,
-      "rise10to90Ms": 0.8,
-      "settling2PercentMs": 128.60000000000002,
+      "crossoverHz": 10.630853495592902,
+      "phaseMarginDeg": 111.75055893225739,
+      "maxPoleReal": -27.645138524665956,
+      "overshootPercent": 45.31877086143532,
+      "rise10to90Ms": 0.6,
+      "settling2PercentMs": 105.7,
       "stable": true,
       "meets60Degrees": true
     }
@@ -87,12 +87,12 @@
       "meets60Degrees": true
     },
     "Q": {
-      "kp": 0.5758611931552177,
-      "tiSeconds": 0.005132492479650102,
+      "kp": 0.4532888916062583,
+      "tiSeconds": 0.0065203522475878895,
       "crossoverHz": 10.769709075148374,
       "phaseMarginDeg": 65.35977078978918,
-      "maxPoleReal": -60.30285324924948,
-      "overshootPercent": 11.801414712080316,
+      "maxPoleReal": -60.302853249249424,
+      "overshootPercent": 11.801414712080383,
       "rise10to90Ms": 11.1,
       "settling2PercentMs": 46.2,
       "stable": true,

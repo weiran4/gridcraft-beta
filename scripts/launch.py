@@ -37,7 +37,7 @@ def make_server(root,port):
             except ValueError:
                 self.send_error(404);return None
             parts=rel.parts
-            allowed=not parts or str(rel) in {'index.html','gfl.html'} or parts[0] in ASSETS
+            allowed=not parts or str(rel) in {'index.html','gfl.html','gfm.html'} or parts[0] in ASSETS
             if not allowed or (parts and any(x.startswith('.') for x in parts)):
                 self.send_error(404);return None
             if candidate.is_dir() and parts:
@@ -79,7 +79,7 @@ def main():
     parser.add_argument('--check',action='store_true',help='Check extracted project files and exit')
     args=parser.parse_args()
     if not 0<=args.port<=65535:parser.error('port must be between 0 and 65535')
-    required=['index.html','gfl.html','ui/app.js','examples/PVFarm_Boost_2LVSC_LrgDT.js']
+    required=['index.html','gfl.html','gfm.html','ui/app.js','examples/pv-grid-demo.js']
     for name in required:
         if not (ROOT/name).is_file():raise OSError('Missing '+name+'. Extract the complete project ZIP first.')
     if args.check:

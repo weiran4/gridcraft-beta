@@ -21,6 +21,7 @@ class LauncherTests(unittest.TestCase):
         self.server.shutdown();self.server.server_close();self.thread.join()
     def test_root_page_and_modules(self):
         self.assertIn(b'Gridcraft Beta',urlopen(self.url+'/').read())
+        self.assertIn(b'GFM CONTROL WORKBENCH',urlopen(self.url+'/gfm.html').read())
         self.assertIn(b'autoTuneGfl',urlopen(self.url+'/analysis/gfl-autotune.js?v=1').read())
     def test_reuse_only_same_project(self):
         self.assertTrue(launcher.is_same_server(ROOT,self.server.server_port))

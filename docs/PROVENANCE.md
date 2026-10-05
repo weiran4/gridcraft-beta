@@ -1,5 +1,5 @@
 # Editor provenance
-Source: E:/network_node, commit 661856b. The source repository is read-only; no runtime dependency is introduced.
+Editor ancestry: Branch Builder (https://github.com/weiran4/network_node), commit 661856b. The adapted editing logic is included locally; there is no runtime dependency on that repository.
 
 Adapted from index.html:
 - netGroups: union-find connectivity → core/network/graph.js; stable terminal keys replace transient numbered net identity.

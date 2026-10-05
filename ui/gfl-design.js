@@ -10,14 +10,14 @@ import {parseProject,serializeProject} from '../project/model.js?v=transformer-r
 import {getGfl,connectedDc,setGflField} from '../project/gfl-settings.js?v=transformer-rx3';
 import {designGflPi} from '../analysis/gfl-pi.js?v=ti1';
 import {validateGains,frequencySweep,crossings} from '../analysis/gfl-frequency.js?v=outer1';
-import {controlDiagram} from './gfl-diagram.js?v=ti1';
+import {controlDiagram} from './gfl-diagram.js?v=filter-edit1';
 import {bodeSvg,bodeLegend} from './bode-plot.js?v=outer1';
 import {equationSet,math,mi,mn,mo,sub,sup,frac,sqrt} from './paper-math.js?v=autotune1';
 import {escapeHtml as esc} from './symbols.js?v=transformer-rx3';
 import {filterFields,filterDefaults,measurementFilters} from '../analysis/measurement-filters.js?v=outer1';
 const $=id=>document.getElementById(id),fmt=v=>Number(v.toPrecision(8)).toString(),key='gridcraft-v1';
 const defs=[['ratedApparentPowerVA','额定 S','MVA',1e6],['ratedActivePowerW','额定 P','MW',1e6],['ratedReactivePowerVar','额定 Q','Mvar',1e6],['ratedAcVoltageV','额定 VLL','V',1],['activePowerW','运行 P','MW',1e6],['reactivePowerVar','运行 Q','Mvar',1e6],['filterResistanceOhm','滤波 Rf','Ω',1],['filterInductanceH','滤波 Lf','μH',1e-6],['dcVoltage','DC 电压','V',1],['dcResistance','DC 内阻','Ω',1],['frequencyHz','系统频率','Hz',1]];
-const targets=[['fs','控制步长 Ts','μs'],['fi','电流目标交越 fi','Hz'],['fp','外环目标交越 fo','Hz'],['delaySamples','等效延时','Ts']];
+const targets=[['fs','控制步长 Ts','μs'],['fi','电流目标交越 fi','Hz'],['fp','外环目标交越 fo','Hz'],['delaySamples','计算 / PWM 纯延时','Ts']];
 const settingKeys=[...targets.map(([k])=>k),...filterFields.map(([k])=>k),'dMode','qMode','capSource','customCapUf'];
 const loadSettings=stored=>({dMode:'P',qMode:'Q',capSource:'applied',customCapUf:null,fs:20000,fi:500,fp:50,delaySamples:0,...filterDefaults,...Object.fromEntries(settingKeys.filter(k=>stored[k]!==undefined).map(k=>[k,stored[k]]))});
 const shared=projectStore(localStorage,parseProject,serializeProject);
@@ -89,8 +89,25 @@ function plot(){validateGains(gains);const sweep=frequencySweep(input,gains,$('b
  summary.innerHTML='<p class="small-note">自动整定建议：实际交越受反馈滤波、延时及内外环间隔限制。'+(manual?'下表为建议值，当前手动增益的结果见频响表。':'下表对应当前自动增益。')+'</p><table><thead><tr><th>控制环</th><th>目标上限 / Hz</th><th>整定交越 / Hz</th></tr></thead><tbody>'+Object.entries(tuning.loops).map(([k,v])=>'<tr><td>'+loopLabel(k)+'</td><td>'+fmt(v.requested)+'</td><td>'+fmt(v.frequency)+'</td></tr>').join('')+'</tbody></table>';
 }
 function refresh(force=false,persist=true){try{const opCtx={...inverterOperatingContext(project,getGfl(project,id)),dcVoltage:connectedDc(project,id).parametersSI.voltageV},op=operatingPoint(opCtx);$('operatingPointSummary').innerHTML=operatingSummary(opCtx)+'<p class="small-note">运行点所需桥侧相电压 RMS：'+fmt(op.converterRms)+' V；调制比 m = '+fmt(op.modulation)+'。采用已应用 Lf，忽略 Rf 与电容基波电流。</p>'+(op.modulation>2/Math.sqrt(3)?'<p class="note error">运行点所需调制比超过 SVPWM 线性上限。</p>':'');if($('dcCapSummary'))$('dcCapSummary').innerHTML=dcCapSummary(project,getGfl(project,id));if(!Array.from(document.querySelectorAll('#parameterTables input')).every(e=>e.checkValidity()))throw Error('请先修正参数表中的无效输入。');input=readInput();renderOuter();tuning=autoTuneGfl(input);design=tuning.baseDesign;models=tuning.models;recommended=tuning.gains;if(force||!manual||!gains){gains=structuredClone(recommended);manual=false;}validateGains(gains);rememberGains();renderFilters();bases();$('paperEquations').innerHTML=equationSet(settings);$('bodeLegend').innerHTML=bodeLegend({P:settings.dMode,Q:settings.qMode});$('diagramHost').innerHTML=controlDiagram(gains,recommended,settings);$('designWarnings').innerHTML=design.warnings.filter(w=>w.includes('DC电压不足')).map(w=>'<p class="note warning">'+esc(w)+'</p>').join('')+'<p class="small-note">额定点 vd = 1 pu、vq = 0；运行 P/Q 同步更新电流与调制校核；整定使用额定点线性化；未计外环间耦合与 PLL 动态。SVPWM 电压上限 '+fmt(design.headroom)+' pu（未扣除压降）。</p>';if(connectedDc(project,id).parametersSI.resistanceOhm!==0)$('designWarnings').innerHTML+='<p class="note warning">DC 含内阻；本页仍按刚性 DC 电压估算调制上限。</p>';$('designError').textContent='';plot();valid=true;if(persist)save();}catch(e){invalidate(e);}}
+function diagramFilterEdit(e){
+ const el=e.target,key=el.dataset.filterSetting;
+ if(!key||e.type!=='change')return;
+ if(!Number.isFinite(el.valueAsNumber)||el.valueAsNumber<0){
+  el.setCustomValidity('滤波时间常数必须为非负有限数，0 表示旁路。');el.setAttribute('aria-invalid','true');
+  valid=false;$('designError').textContent=el.validationMessage;$('saveStatus').textContent='滤波输入无效，请修正；尚未保存';
+  for(const n of ['bodePlot','bodeMetrics','gainSummary'])$(n).innerHTML='';return;
+ }
+ el.setCustomValidity('');el.removeAttribute('aria-invalid');
+ const other=$('diagramHost').querySelector('[data-filter-setting][aria-invalid="true"], [data-gain][aria-invalid="true"]');
+ if(other){$('designError').textContent='请先修正其余标红的图内输入。';return;}
+ const field=$('field-'+key);field.value=el.value;
+ // Route through the same validation, tuning and persistence path as the top inputs.
+ field.dispatchEvent(new Event('change',{bubbles:true}));
+}
+
 function gainEdit(e){
  const el=e.target,tag=el.dataset.gain||el.dataset.slider;if(!tag)return;if(e.type==='input'&&!el.dataset.slider)return;
+ if($('diagramHost').querySelector('[data-filter-setting][aria-invalid="true"]')){$('designError').textContent='请先修正标红的滤波输入。';return;}
  try{
   if(!Array.from(document.querySelectorAll('#parameterTables input')).every(e=>e.checkValidity()))throw Error('请先修正参数表中的无效输入。');
   designGflPi(readInput());const [loop,k]=tag.split('.');
@@ -109,9 +126,10 @@ function gainEdit(e){
 }
 
 try{const raw=localStorage.getItem(key);if(!raw)throw Error('请先返回电路并选择 GFL 元件。');project=parseProject(raw);shared.accept(project);id=new URLSearchParams(location.search).get('ibr');const c=getGfl(project,id);$('selectedIdentity').textContent=c.name+' · '+id;const stored=project.extensions?.gflPi?.[id]||{};settings=loadSettings(stored);gainBank=stored.gainBank||{};gains=stored.gains;manual=stored.manual===true;drawTables();$('paperEquations').innerHTML=equationSet();$('bodeLegend').innerHTML=bodeLegend();refresh(false,false);}catch(e){invalidate(e);}
+$('diagramHost').addEventListener('change',diagramFilterEdit);
 $('diagramHost').addEventListener('input',gainEdit);$('diagramHost').addEventListener('change',gainEdit);
 $('retune').onclick=()=>refresh(true);$('bodeMode').onchange=()=>{if(valid)plot();};
-$('exportPi').onclick=()=>{if(!valid)return;const data={schema:'gridcraft-gfl-pi-v6',ibrId:id,inputs:{...input,controlStepSeconds:1/input.fs},piForm:'Kp + 1/(Ti*s)',tiUnit:'s',parameters:Object.fromEntries(Object.entries(gains).map(([k,v])=>[loopLabel(k),piTimeParameters(v)])),manual,autoTuning:{policy:tuning.policy,targetMargin:tuning.targetMargin,loops:tuning.loops,applied:!manual},zeroDelayStability:input.delaySamples===0?Object.fromEntries(Object.entries(closedLoopPolynomials(input,gains)).map(([k,c])=>[loopLabel(k),isHurwitz(c)])):null,outerModels:Object.fromEntries(Object.entries(models).map(([k,v])=>[loopLabel(k),{label:v.label,sign:v.sign,gain:v.gain,integrator:v.integrator,filter:v.filter}])),base:design.base,assumptions:'Perfect PLL; rated-point scalar linearization; ideal dq decoupling; selected first-order feedback filters; Vdc uses capacitor energy balance with constant DC input power, not a voltage-clamped ideal source; Vac uses static Xth/Zb sensitivity with other channel held fixed; no PLL, network resonance, or cross-channel dynamics; continuous parallel PI; pure delay; no time simulation.'};const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='gfl-pi-'+id+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
+$('exportPi').onclick=()=>{if(!valid)return;const data={schema:'gridcraft-gfl-pi-v6',ibrId:id,inputs:{...input,controlStepSeconds:1/input.fs},controlConvention:{currentPositive:'converter-to-grid',park:'d=cos, q=-sin; amplitude-invariant',powerPositive:'injection-to-grid',currentError:'reference-minus-filtered-measurement',currentPiVoltageSign:1,decoupling:{d:'-omega*L*iq',q:'+omega*L*id'},outerPolarity:{P:1,Q:-1,Vdc:-1,Vac:-1}},piForm:'Kp + 1/(Ti*s)',tiUnit:'s',parameters:Object.fromEntries(Object.entries(gains).map(([k,v])=>[loopLabel(k),piTimeParameters(v)])),manual,autoTuning:{policy:tuning.policy,targetMargin:tuning.targetMargin,loops:tuning.loops,applied:!manual},zeroDelayStability:input.delaySamples===0?Object.fromEntries(Object.entries(closedLoopPolynomials(input,gains)).map(([k,c])=>[loopLabel(k),isHurwitz(c)])):null,outerModels:Object.fromEntries(Object.entries(models).map(([k,v])=>[loopLabel(k),{label:v.label,sign:v.sign,gain:v.gain,integrator:v.integrator,filter:v.filter}])),base:design.base,assumptions:'Perfect PLL; rated-point scalar linearization; ideal dq decoupling; selected first-order feedback filters; Vdc uses capacitor energy balance with constant DC input power, not a voltage-clamped ideal source; Vac uses static Xth/Zb sensitivity with other channel held fixed; no PLL, network resonance, or cross-channel dynamics; continuous parallel PI; pure delay; no time simulation.'};const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='gfl-pi-'+id+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
 function receiveProject(p){
  if(!p||serializeProject(p)===serializeProject(project))return;
  project=p;shared.accept(p);

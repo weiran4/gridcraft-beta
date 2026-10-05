@@ -1,7 +1,7 @@
-export const pvFarmExample = {
+export const pvGridExample = {
   "format": "grid-strength",
   "schemaVersion": 1,
-  "name": "PVFarm_Boost_2LVSC_LrgDT",
+  "name": "PV_Grid_Demo",
   "frequencyHz": 50,
   "components": [
     {
@@ -56,7 +56,7 @@ export const pvFarmExample = {
         "baseFrequencyHz": 50,
         "shortCircuitResistancePu": 0.001,
         "shortCircuitReactancePu": 0.1,
-        "ratedApparentPowerVA": 2000000,
+        "ratedApparentPowerVA": 1000000,
         "primaryVoltageV": 220000,
         "secondaryVoltageV": 35000
       },
@@ -87,7 +87,7 @@ export const pvFarmExample = {
         "baseFrequencyHz": 50,
         "shortCircuitResistancePu": 0.001,
         "shortCircuitReactancePu": 0.1,
-        "ratedApparentPowerVA": 2000000,
+        "ratedApparentPowerVA": 1000000,
         "primaryVoltageV": 35000,
         "secondaryVoltageV": 315
       },
@@ -289,8 +289,8 @@ export const pvFarmExample = {
             "ki": 10.23535352200113
           },
           "Q": {
-            "kp": 0.5758611931552177,
-            "ki": 194.83710964310524
+            "kp": 0.4532888916062583,
+            "ki": 153.36594742560658
           }
         },
         "manual": false,
@@ -310,8 +310,8 @@ export const pvFarmExample = {
                 "ki": 10.23535352200113
               },
               "Q": {
-                "kp": 0.5758611931552177,
-                "ki": 194.83710964310524
+                "kp": 0.4532888916062583,
+                "ki": 153.36594742560658
               }
             },
             "manual": false

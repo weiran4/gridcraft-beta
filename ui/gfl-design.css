@@ -26,3 +26,8 @@ body.design-page{height:auto;overflow:auto;background:#f4f6f7;color:#253744}.des
 #tuningSummary table{max-width:700px}#designWarnings p{margin:8px 0}
 @media(max-width:1250px){.parameter-input-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.parameter-input-grid .input-group:nth-child(3){border-left:0;padding-left:0}.parameter-detail-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:650px){.parameter-input-grid,.parameter-detail-grid{grid-template-columns:1fr}.parameter-input-grid .input-group+.input-group{border-left:0;border-top:1px solid #e1e7eb;padding:16px 0 0}.tuning-actions{align-items:stretch;flex-direction:column;gap:10px}.tuning-actions #retune{width:100%}}
+
+.filter-fields{display:flex;flex-direction:column;align-items:center;gap:2px;font:13px "Times New Roman",SimSun,serif;color:#243844}
+.filter-fields math{font-size:15px;height:29px}.filter-fields label{display:flex;align-items:center;gap:3px;height:23px}
+.filter-fields input{width:65px;min-width:0;height:22px;padding:1px 3px;border:1px solid #b9c9d1;border-radius:2px;font:13px "Times New Roman",serif;color:#243844;background:white}
+.filter-fields input[aria-invalid="true"]{border-color:#b52f26;background:#fff0ed}

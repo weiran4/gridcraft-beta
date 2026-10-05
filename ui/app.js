@@ -19,7 +19,7 @@ import {rlImpedance,rcImpedance,magnitude,ratio,angleDegrees} from '../core/elec
 import {createAutomaticAnalysis} from '../analysis/automatic.js?v=transformer-rx3';
 import {installInspectorResize} from './inspector-resize.js?v=transformer-rx3';
 import {referenceIbrCandidates} from '../core/network/graph.js?v=transformer-rx3';
-import {demo} from '../examples/demo.js?v=pv-template2';
+import {demo} from '../examples/demo.js?v=gfm-pi1';
 import {escapeHtml as esc,thumbnail} from './symbols.js?v=transformer-rx3';
 const $=id=>document.getElementById(id),fmt=(n,d=4)=>n==='Infinity'?'∞':n===null||n===undefined?'—':Number.isFinite(n)?Number(n.toPrecision(d)).toLocaleString('en-US',{maximumFractionDigits:8}):'—';
 const row=(label,value)=>`<div class="metric-row"><span>${esc(label)}</span><b>${esc(value)}</b></div>`;
@@ -43,10 +43,10 @@ function renderProperties(){const c=selected;compactInspector?.setSelection(c);i
  if(c.type==='rc')extra+=resonanceSummary(editor.project,c);
  if(c.type==='transformer')extra+=transformerFormulas(c,editor.project.frequencyHz);
  if(c.type==='bus')extra=`<label class="inline-check"><input id="isPcc" type="checkbox" ${c.parametersSI.isPcc?'checked':''}>标记为 PCC</label><button id="showAnalysis" class="primary calculate">打开 Grid Strength 分析 ↗</button>`;
- if(isIbr(c))extra='<div class="note">SCR 使用额定 S，不使用当前 P/Q。滤波 Rf/Lf 位于逆变器侧，不计入 PCC 上游阻抗。GFL 的 PI 参数整定可通过上方设计入口打开；GFM 整定暂未实现。</div>';
+ if(isIbr(c))extra='<div class="note">SCR 使用额定 S，不使用当前 P/Q。滤波 Rf/Lf 位于逆变器侧，不计入 PCC 上游阻抗。GFL / GFM 的 PI 参数整定可通过上方设计入口打开；模型范围在整定页说明。</div>';
  if(c.type==='dc')extra='<div class="note">DC 参数可保存和连接至逆变器 DC 端口，暂不参与 AC SCR 计算。</div>';
  if(isIbr(c))extra+=operatingSummary(inverterOperatingContext(editor.project,c))+dcCapSummary(editor.project,c);
- $('propertiesPanel').innerHTML=`<div class="section-eyebrow">COMPONENT PROPERTIES</div><h2 class="panel-title">${esc(def.label)}</h2><p class="panel-sub">${esc(def.en)} · ID ${esc(c.id)}</p><label class="field"><span>元件名称</span><input id="componentName" value="${esc(c.name)}"></label>${isIbr(c)?'<button id="openFilterDesign" class="primary design-launch"><span>滤波电感设计</span><b aria-hidden="true">↗</b></button><button id="openDcCapDesign" class="primary design-launch"><span>DC 母线电容设计</span><b aria-hidden="true">↗</b></button>':c.type==='rc'?'<button id="openRcDesign" class="primary design-launch"><span>RC 滤波设计</span><b aria-hidden="true">↗</b></button><button id="openResonance" class="primary design-launch"><span>谐振分析 · 局部与全网</span><b aria-hidden="true">↗</b></button>':c.type==='dc'?'<button id="openDcDesign" class="primary design-launch"><span>DC 电压设计</span><b aria-hidden="true">↗</b></button>':''}${c.type==='gfl'?'<button id="designSelectedGfl" class="primary design-launch"><span>PI 参数设计</span><b aria-hidden="true">↗</b></button>':''}${fields}${extra}<div id="parameterError" role="alert"></div>`;
+ $('propertiesPanel').innerHTML=`<div class="section-eyebrow">COMPONENT PROPERTIES</div><h2 class="panel-title">${esc(def.label)}</h2><p class="panel-sub">${esc(def.en)} · ID ${esc(c.id)}</p><label class="field"><span>元件名称</span><input id="componentName" value="${esc(c.name)}"></label>${isIbr(c)?'<button id="openFilterDesign" class="primary design-launch"><span>滤波电感设计</span><b aria-hidden="true">↗</b></button><button id="openDcCapDesign" class="primary design-launch"><span>DC 母线电容设计</span><b aria-hidden="true">↗</b></button>':c.type==='rc'?'<button id="openRcDesign" class="primary design-launch"><span>RC 滤波设计</span><b aria-hidden="true">↗</b></button><button id="openResonance" class="primary design-launch"><span>谐振分析 · 局部与全网</span><b aria-hidden="true">↗</b></button>':c.type==='dc'?'<button id="openDcDesign" class="primary design-launch"><span>DC 电压设计</span><b aria-hidden="true">↗</b></button>':''}${isIbr(c)?'<button id="designSelectedGfl" class="primary design-launch"><span>PI 参数设计</span><b aria-hidden="true">↗</b></button>':''}${fields}${extra}<div id="parameterError" role="alert"></div>`;
  if($('openFilterDesign'))$('openFilterDesign').onclick=()=>{
   const dialog=$('filterDesignDialog');dialog.dataset.returnFocus='openFilterDesign';$('closeFilterDesign').setAttribute('aria-label','关闭滤波电感设计');
   $('filterDesignTitle').textContent=`滤波电感设计 · ${c.name} · ${c.id}`;
@@ -79,7 +79,7 @@ function renderProperties(){const c=selected;compactInspector?.setSelection(c);i
   mountDcDesign($('filterDesign'),editor.project,c,values=>commit(()=>{c.extensions??={};c.extensions.dcDesign=values;}),(v,values)=>commit(()=>{c.extensions??={};c.extensions.dcDesign=values;c.parametersSI.voltageV=v;}));
   dialog.showModal();
  };
- if($('designSelectedGfl'))$('designSelectedGfl').onclick=()=>{shared.write(editor.project);location.href='gfl.html?ibr='+encodeURIComponent(c.id);};
+ if($('designSelectedGfl'))$('designSelectedGfl').onclick=()=>{shared.write(editor.project);location.href=(c.type==='gfm'?'gfm.html':'gfl.html')+'?ibr='+encodeURIComponent(c.id);};
  $('componentName').addEventListener('change',e=>commit(()=>c.name=e.target.value));
  document.querySelectorAll('[data-param]').forEach(input=>input.addEventListener('change',()=>{const f=def.fields.find(f=>f.key===input.dataset.param),v=toSI(input.valueAsNumber,f.unit);if(!Number.isFinite(v)||v<f.min||(f.strict&&v===f.min)){$('parameterError').innerHTML='<div class="note error">请输入合法的有限数值；当前修改尚未应用。</div>';input.setAttribute('aria-invalid','true');return;}commit(()=>{c.parametersSI[f.key]=v;if(c.type==='source'&&f.key==='frequencyHz'){editor.project.frequencyHz=v;editor.project.components.filter(x=>x.type==='source').forEach(x=>x.parametersSI.frequencyHz=v);}});}));
  if($('isPcc'))$('isPcc').onchange=e=>commit(()=>c.parametersSI.isPcc=e.target.checked);if($('showAnalysis'))$('showAnalysis').onclick=()=>{selectPcc(c.id);setTab('analysis');};

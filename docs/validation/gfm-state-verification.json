@@ -1,0 +1,50 @@
+[
+  {
+    "case": "default",
+    "loop": "d",
+    "maxPoleReal": -11.116740818420867,
+    "maxRelativeResponseError": 8.188618347845311e-16
+  },
+  {
+    "case": "default",
+    "loop": "q",
+    "maxPoleReal": -11.116740818420867,
+    "maxRelativeResponseError": 8.188618347845311e-16
+  },
+  {
+    "case": "default",
+    "loop": "P",
+    "maxPoleReal": -4.011707023187387,
+    "maxRelativeResponseError": 3.6998835413224644e-15
+  },
+  {
+    "case": "default",
+    "loop": "Q",
+    "maxPoleReal": -4.011707023187387,
+    "maxRelativeResponseError": 3.6998835413224644e-15
+  },
+  {
+    "case": "changed",
+    "loop": "d",
+    "maxPoleReal": -7.757022333688723,
+    "maxRelativeResponseError": 1.5911381755304417e-15
+  },
+  {
+    "case": "changed",
+    "loop": "q",
+    "maxPoleReal": -8.994418207086785,
+    "maxRelativeResponseError": 1.6204409447426986e-15
+  },
+  {
+    "case": "changed",
+    "loop": "P",
+    "maxPoleReal": -2.734633847878389,
+    "maxRelativeResponseError": 2.1103253275519794e-15
+  },
+  {
+    "case": "changed",
+    "loop": "Q",
+    "maxPoleReal": -1.6501763447354478,
+    "maxRelativeResponseError": 2.1009810912251604e-15
+  }
+]

@@ -38,7 +38,7 @@ test('phase harmonic and equivalent LL harmonic give identical inductor bounds',
  assert.ok(Math.abs(phase.minH-line.minH)<1e-14);assert.ok(Math.abs(phase.minH-legacy.minH*Math.sqrt(3))<1e-14);assert.equal(phase.maxH,legacy.maxH);assert.throws(()=>designFilterInductor({...p,harmonicBasis:'bad'}));
 });
 
-test('manual PV phase amplitude keeps exact and approximate spectral inputs distinct',()=>{
+test('Specified PV phase amplitude keeps exact and approximate spectral inputs distinct',()=>{
  const p={ratedVA:1928*Math.sqrt(3)*315,voltageLL:315,frequencyHz:50,dcVoltage:800,fs:2000,sideband:'2N-1',harmonicPu:.389,harmonicBasis:'phase',ripplePercent:10,dropPercent:20,L:63e-6};
  const exact=designFilterInductor(p),approx=designFilterInductor({...p,harmonicPu:.4});
  assert.equal(exact.harmonicPhasePeakV,155.6);
