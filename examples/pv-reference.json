@@ -1,0 +1,220 @@
+{
+  "format": "grid-strength",
+  "schemaVersion": 1,
+  "name": "PV reference · 220 / 35 / 0.315 kV",
+  "frequencyHz": 50,
+  "components": [
+    {
+      "id": "S1",
+      "type": "source",
+      "name": "Grid source",
+      "x": 120,
+      "y": 280,
+      "rotation": 0,
+      "parametersSI": {
+        "ratedVoltageV": 220000,
+        "frequencyHz": 50,
+        "phaseRad": 0
+      },
+      "extensions": {}
+    },
+    {
+      "id": "RG",
+      "type": "rl",
+      "name": "Grid RL",
+      "x": 330,
+      "y": 280,
+      "rotation": 0,
+      "parametersSI": {
+        "resistanceOhm": 2303.01,
+        "inductanceH": 41.568
+      },
+      "extensions": {}
+    },
+    {
+      "id": "BUS220",
+      "type": "bus",
+      "name": "Analysis · 220 kV",
+      "x": 520,
+      "y": 280,
+      "rotation": 0,
+      "parametersSI": {
+        "ratedVoltageV": 220000,
+        "isPcc": true,
+        "primaryIbrId": "PV1"
+      },
+      "extensions": {}
+    },
+    {
+      "id": "T1",
+      "type": "transformer",
+      "name": "T1 · ideal",
+      "x": 720,
+      "y": 280,
+      "rotation": 0,
+      "parametersSI": {
+        "ratedApparentPowerVA": 1000000,
+        "primaryVoltageV": 220000,
+        "secondaryVoltageV": 35000
+      },
+      "extensions": {}
+    },
+    {
+      "id": "BUS35",
+      "type": "bus",
+      "name": "35 kV bus",
+      "x": 910,
+      "y": 280,
+      "rotation": 0,
+      "parametersSI": {
+        "ratedVoltageV": 35000,
+        "isPcc": true,
+        "primaryIbrId": "PV1"
+      },
+      "extensions": {}
+    },
+    {
+      "id": "T2",
+      "type": "transformer",
+      "name": "T2 · ideal",
+      "x": 1100,
+      "y": 280,
+      "rotation": 0,
+      "parametersSI": {
+        "ratedApparentPowerVA": 1000000,
+        "primaryVoltageV": 35000,
+        "secondaryVoltageV": 315
+      },
+      "extensions": {}
+    },
+    {
+      "id": "PCC1",
+      "type": "bus",
+      "name": "PCC · 315 V",
+      "x": 1300,
+      "y": 280,
+      "rotation": 0,
+      "parametersSI": {
+        "ratedVoltageV": 315,
+        "isPcc": true,
+        "primaryIbrId": "PV1"
+      },
+      "extensions": {}
+    },
+    {
+      "id": "PV1",
+      "type": "gfl",
+      "name": "PV1 · GFL",
+      "x": 1520,
+      "y": 280,
+      "rotation": 0,
+      "parametersSI": {
+        "ratedApparentPowerVA": 1000000,
+        "ratedActivePowerW": 1000000,
+        "ratedReactivePowerVar": 0,
+        "ratedAcVoltageV": 315,
+        "activePowerW": 1000000,
+        "reactivePowerVar": 0,
+        "filterResistanceOhm": 0.000001,
+        "filterInductanceH": 0.000063
+      },
+      "extensions": {}
+    },
+    {
+      "id": "DC1",
+      "type": "dc",
+      "name": "DC · ideal",
+      "x": 1740,
+      "y": 280,
+      "rotation": 180,
+      "parametersSI": {
+        "voltageV": 800,
+        "resistanceOhm": 0
+      },
+      "extensions": {}
+    },
+    {
+      "id": "RC1",
+      "type": "rc",
+      "name": "Shunt RC",
+      "x": 1300,
+      "y": 530,
+      "rotation": 0,
+      "parametersSI": {
+        "resistanceOhm": 0.051,
+        "capacitanceF": 0.0015
+      },
+      "extensions": {}
+    }
+  ],
+  "wires": [
+    {
+      "id": "W1",
+      "from": "S1.AC",
+      "to": "RG.A",
+      "mid": null
+    },
+    {
+      "id": "W2",
+      "from": "RG.B",
+      "to": "BUS220.AC",
+      "mid": null
+    },
+    {
+      "id": "W3",
+      "from": "BUS220.AC",
+      "to": "T1.A",
+      "mid": null
+    },
+    {
+      "id": "W4",
+      "from": "T1.B",
+      "to": "BUS35.AC",
+      "mid": null
+    },
+    {
+      "id": "W5",
+      "from": "BUS35.AC",
+      "to": "T2.A",
+      "mid": null
+    },
+    {
+      "id": "W6",
+      "from": "T2.B",
+      "to": "PCC1.AC",
+      "mid": null
+    },
+    {
+      "id": "W7",
+      "from": "PCC1.AC",
+      "to": "PV1.AC",
+      "mid": null
+    },
+    {
+      "id": "W8",
+      "from": "PCC1.AC",
+      "to": "RC1.AC",
+      "mid": null
+    },
+    {
+      "id": "W9",
+      "from": "PV1.DC",
+      "to": "DC1.DC",
+      "mid": null
+    }
+  ],
+  "editor": {
+    "zoom": 0.68,
+    "viewCenter": {
+      "x": 835,
+      "y": 420
+    }
+  },
+  "extensions": {
+    "reference": {
+      "note": "三相平衡单机系统。电源串联电阻已计入 Grid RL；SCR 按所选母线的上游阻抗与逆变器额定容量计算，RC 与逆变器滤波阻抗不计入上游电网等效。",
+      "windingVoltageBasis": "T2 低压侧额定线电压为 0.315 kV。",
+      "gridInductanceBasis": "Grid RL 电感为 41.568 H。"
+    }
+  }
+}

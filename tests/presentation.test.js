@@ -1,0 +1,11 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {symbol,localPort} from '../ui/symbols.js';
+import {parameterLines} from '../ui/parameter-labels.js';
+import {createComponent} from '../project/model.js';
+import {Editor} from '../ui/editor.js';
+import {fixture} from './fixtures.js';
+test('inverter AC glyph is left and DC glyph right, matching ports',()=>{for(const type of ['gfl','gfm']){assert.ok(localPort(type,'AC').x<0);assert.ok(localPort(type,'DC').x>0);assert.match(symbol(type),/data-domain-symbol="ac"[^>]*d="M-24/);assert.match(symbol(type),/data-domain-symbol="dc"[^>]*d="M8/);}});
+test('all inverter electrical parameters are visible in canvas labels',()=>{const c=createComponent('gfl','C1');const text=parameterLines(c,60).join(' ');for(const key of ['S','Prated','Qrated','VLL','P','Q','Rf','Lf'])assert.match(text,new RegExp(key+' ='));});
+test('small reactor resistance is not displayed as zero',()=>{const c=createComponent('gfl','C1');c.parametersSI.filterResistanceOhm=1e-6;c.parametersSI.filterInductanceH=63e-6;const text=parameterLines(c,50).join(' ');assert.match(text,/Rf = 0.000001 Ω/);assert.match(text,/Lf = 0.063 mH/);});
+test('connection handler blocks cross-domain connections before history mutation',()=>{const p=fixture(),fake={project:p,pendingTerminal:'source.AC',render(){},onStatus(){},state:{checkpoint(){throw Error('invalid connection modified history');}}};Editor.prototype.connectTerminals.call(fake,'source.AC','ibr.DC');assert.equal(p.wires.length,3);assert.equal(fake.pendingTerminal,null);});

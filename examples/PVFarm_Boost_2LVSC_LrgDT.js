@@ -1,0 +1,323 @@
+export const pvFarmExample = {
+  "format": "grid-strength",
+  "schemaVersion": 1,
+  "name": "PVFarm_Boost_2LVSC_LrgDT",
+  "frequencyHz": 50,
+  "components": [
+    {
+      "id": "S1",
+      "type": "source",
+      "name": "Grid source",
+      "x": 120,
+      "y": 280,
+      "rotation": 0,
+      "parametersSI": {
+        "ratedVoltageV": 220000,
+        "frequencyHz": 50,
+        "phaseRad": 0
+      },
+      "extensions": {}
+    },
+    {
+      "id": "RG",
+      "type": "rl",
+      "name": "Grid RL",
+      "x": 340.5596923828125,
+      "y": 280.45257568359375,
+      "rotation": 0,
+      "parametersSI": {
+        "resistanceOhm": 2303.01,
+        "inductanceH": 41.568
+      },
+      "extensions": {}
+    },
+    {
+      "id": "BUS220",
+      "type": "bus",
+      "name": "Analysis · 220 kV",
+      "x": 520,
+      "y": 280,
+      "rotation": 0,
+      "parametersSI": {
+        "ratedVoltageV": 220000,
+        "isPcc": true,
+        "primaryIbrId": "PV1"
+      },
+      "extensions": {}
+    },
+    {
+      "id": "T1",
+      "type": "transformer",
+      "name": "T1",
+      "x": 720,
+      "y": 280,
+      "rotation": 0,
+      "parametersSI": {
+        "baseFrequencyHz": 50,
+        "shortCircuitResistancePu": 0.001,
+        "shortCircuitReactancePu": 0.1,
+        "ratedApparentPowerVA": 2000000,
+        "primaryVoltageV": 220000,
+        "secondaryVoltageV": 35000
+      },
+      "extensions": {}
+    },
+    {
+      "id": "BUS35",
+      "type": "bus",
+      "name": "35 kV bus",
+      "x": 910,
+      "y": 280,
+      "rotation": 0,
+      "parametersSI": {
+        "ratedVoltageV": 35000,
+        "isPcc": true,
+        "primaryIbrId": "PV1"
+      },
+      "extensions": {}
+    },
+    {
+      "id": "T2",
+      "type": "transformer",
+      "name": "T2",
+      "x": 1100,
+      "y": 280,
+      "rotation": 0,
+      "parametersSI": {
+        "baseFrequencyHz": 50,
+        "shortCircuitResistancePu": 0.001,
+        "shortCircuitReactancePu": 0.1,
+        "ratedApparentPowerVA": 2000000,
+        "primaryVoltageV": 35000,
+        "secondaryVoltageV": 315
+      },
+      "extensions": {}
+    },
+    {
+      "id": "PCC1",
+      "type": "bus",
+      "name": "PCC · 315 V",
+      "x": 1318.7904052734375,
+      "y": 280.0000305175781,
+      "rotation": 0,
+      "parametersSI": {
+        "ratedVoltageV": 315,
+        "isPcc": true,
+        "primaryIbrId": "PV1"
+      },
+      "extensions": {}
+    },
+    {
+      "id": "PV1",
+      "type": "gfl",
+      "name": "PV1 · GFL",
+      "x": 1520,
+      "y": 280,
+      "rotation": 0,
+      "parametersSI": {
+        "ratedApparentPowerVA": 1000000,
+        "ratedActivePowerW": 1000000,
+        "ratedReactivePowerVar": 0,
+        "ratedAcVoltageV": 315,
+        "activePowerW": 1000000,
+        "reactivePowerVar": 0,
+        "filterResistanceOhm": 0.000001,
+        "filterInductanceH": 0.000063
+      },
+      "extensions": {
+        "filterDesign": {
+          "fs": 2000,
+          "sideband": "2N-1",
+          "harmonicPu": 0.389,
+          "ripplePercent": 10,
+          "dropPercent": 20,
+          "selectedMh": 0.063,
+          "harmonicBasis": "phase",
+          "amplitudeSource": "fft",
+          "modulationMode": "rated",
+          "thirdPercent": 15,
+          "currentEfficiencyPercent": 100,
+          "fftSelection": "auto"
+        },
+        "dcCapDesign": {
+          "etaPercent": 98,
+          "timeMode": "period",
+          "holdMs": 20,
+          "seriesCount": 2,
+          "selectedMf": 63.775510204081634
+        }
+      }
+    },
+    {
+      "id": "DC1",
+      "type": "dc",
+      "name": "DC · ideal",
+      "x": 1740,
+      "y": 280,
+      "rotation": 180,
+      "parametersSI": {
+        "voltageV": 800,
+        "resistanceOhm": 0
+      },
+      "extensions": {
+        "dcDesign": {
+          "ibrId": "PV1",
+          "phaseAngleDeg": 0,
+          "modulation": "spwm",
+          "marginPercent": 5,
+          "selectedV": 800
+        }
+      }
+    },
+    {
+      "id": "RC1",
+      "type": "rc",
+      "name": "Shunt RC",
+      "x": 1318.7904052734375,
+      "y": 532.6843566894531,
+      "rotation": 0,
+      "parametersSI": {
+        "resistanceOhm": 0.051,
+        "capacitanceF": 0.0015
+      },
+      "extensions": {
+        "rcDesign": {
+          "ibrId": "PV1",
+          "fsMode": "linked",
+          "fs": 10000,
+          "reactivePercent": 5,
+          "qualityFactor": 4,
+          "selectedUf": 1500
+        }
+      }
+    }
+  ],
+  "wires": [
+    {
+      "id": "W1",
+      "from": "S1.AC",
+      "to": "RG.A",
+      "mid": null
+    },
+    {
+      "id": "W2",
+      "from": "RG.B",
+      "to": "BUS220.AC",
+      "mid": null
+    },
+    {
+      "id": "W3",
+      "from": "BUS220.AC",
+      "to": "T1.A",
+      "mid": null
+    },
+    {
+      "id": "W4",
+      "from": "T1.B",
+      "to": "BUS35.AC",
+      "mid": null
+    },
+    {
+      "id": "W5",
+      "from": "BUS35.AC",
+      "to": "T2.A",
+      "mid": null
+    },
+    {
+      "id": "W6",
+      "from": "T2.B",
+      "to": "PCC1.AC",
+      "mid": null
+    },
+    {
+      "id": "W7",
+      "from": "PCC1.AC",
+      "to": "PV1.AC",
+      "mid": null
+    },
+    {
+      "id": "W8",
+      "from": "PCC1.AC",
+      "to": "RC1.AC",
+      "mid": null
+    },
+    {
+      "id": "W9",
+      "from": "PV1.DC",
+      "to": "DC1.DC",
+      "mid": null
+    }
+  ],
+  "editor": {
+    "zoom": 0.6382978723404256,
+    "viewCenter": {
+      "x": 930,
+      "y": 447.34217834472656
+    }
+  },
+  "extensions": {
+    "reference": {
+      "note": "三相平衡单机系统。电源串联电阻已计入 Grid RL；SCR 按所选母线的上游阻抗与逆变器额定容量计算，RC 与逆变器滤波阻抗不计入上游电网等效。",
+      "windingVoltageBasis": "T2 低压侧额定线电压为 0.315 kV。",
+      "gridInductanceBasis": "Grid RL 电感为 41.568 H。"
+    },
+    "gflPi": {
+      "PV1": {
+        "dMode": "Vdc",
+        "qMode": "Vac",
+        "capSource": "custom",
+        "customCapUf": 64000,
+        "fs": 20000,
+        "fi": 500,
+        "fp": 50,
+        "delaySamples": 0,
+        "filterPqMs": 10,
+        "filterVdcMs": 10,
+        "filterVoltageMs": 10,
+        "filterCurrentMs": 1,
+        "gains": {
+          "d": {
+            "kp": 0.22237791481601865,
+            "ki": 15.047886777651037
+          },
+          "q": {
+            "kp": 0.22237791481601865,
+            "ki": 15.047886777651037
+          },
+          "P": {
+            "kp": 1.4448249755399678,
+            "ki": 10.23535352200113
+          },
+          "Q": {
+            "kp": 0.5758611931552177,
+            "ki": 194.83710964310524
+          }
+        },
+        "manual": false,
+        "gainBank": {
+          "Vdc/Vac": {
+            "gains": {
+              "d": {
+                "kp": 0.22237791481601865,
+                "ki": 15.047886777651037
+              },
+              "q": {
+                "kp": 0.22237791481601865,
+                "ki": 15.047886777651037
+              },
+              "P": {
+                "kp": 1.4448249755399678,
+                "ki": 10.23535352200113
+              },
+              "Q": {
+                "kp": 0.5758611931552177,
+                "ki": 194.83710964310524
+              }
+            },
+            "manual": false
+          }
+        }
+      }
+    }
+  }
+};

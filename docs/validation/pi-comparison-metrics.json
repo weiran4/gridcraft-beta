@@ -1,0 +1,102 @@
+{
+  "simulation": {
+    "d": {
+      "kp": 1.5,
+      "tiSeconds": 0.02,
+      "crossoverHz": 220.27301076388252,
+      "phaseMarginDeg": 34.470410061078226,
+      "maxPoleReal": -33.800351189727394,
+      "overshootPercent": 83.60899351955622,
+      "rise10to90Ms": 0.4,
+      "settling2PercentMs": 10.450000000000001,
+      "stable": true,
+      "meets60Degrees": false
+    },
+    "q": {
+      "kp": 1,
+      "tiSeconds": 0.02,
+      "crossoverHz": 170.9775536004168,
+      "phaseMarginDeg": 40.285089013383356,
+      "maxPoleReal": -51.60297007771765,
+      "overshootPercent": 59.30039974249082,
+      "rise10to90Ms": 0.55,
+      "settling2PercentMs": 9.000000000000002,
+      "stable": true,
+      "meets60Degrees": false
+    },
+    "P": {
+      "kp": 5,
+      "tiSeconds": 0.01,
+      "crossoverHz": 14.827097102222643,
+      "phaseMarginDeg": 38.267034806033536,
+      "maxPoleReal": -23.675835100472746,
+      "overshootPercent": 60.24741329944143,
+      "rise10to90Ms": 6.050000000000001,
+      "settling2PercentMs": 104.9,
+      "stable": true,
+      "meets60Degrees": false
+    },
+    "Q": {
+      "kp": 2,
+      "tiSeconds": 0.01,
+      "crossoverHz": 7.413045508263426,
+      "phaseMarginDeg": 109.90243762196714,
+      "maxPoleReal": -24.214808916044944,
+      "overshootPercent": 16.350697704983496,
+      "rise10to90Ms": 0.8,
+      "settling2PercentMs": 128.60000000000002,
+      "stable": true,
+      "meets60Degrees": true
+    }
+  },
+  "automatic": {
+    "d": {
+      "kp": 0.22237791481601865,
+      "tiSeconds": 0.06645451383148293,
+      "crossoverHz": 53.848547210439804,
+      "phaseMarginDeg": 59.99999648564705,
+      "maxPoleReal": -87.69701988860959,
+      "overshootPercent": 17.45755772017903,
+      "rise10to90Ms": 2.95,
+      "settling2PercentMs": 33.25,
+      "stable": true,
+      "meets60Degrees": true
+    },
+    "q": {
+      "kp": 0.22237791481601865,
+      "tiSeconds": 0.06645451383148293,
+      "crossoverHz": 53.848547210439804,
+      "phaseMarginDeg": 59.99999648564705,
+      "maxPoleReal": -87.69701988860959,
+      "overshootPercent": 17.45755772017903,
+      "rise10to90Ms": 2.95,
+      "settling2PercentMs": 33.25,
+      "stable": true,
+      "meets60Degrees": true
+    },
+    "P": {
+      "kp": 1.4448249755399678,
+      "tiSeconds": 0.09770058238344936,
+      "crossoverHz": 5.637385601195235,
+      "phaseMarginDeg": 59.99999742085561,
+      "maxPoleReal": -9.371770265855465,
+      "overshootPercent": 16.430098094570344,
+      "rise10to90Ms": 24.900000000000002,
+      "settling2PercentMs": 323.70000000000005,
+      "stable": true,
+      "meets60Degrees": true
+    },
+    "Q": {
+      "kp": 0.5758611931552177,
+      "tiSeconds": 0.005132492479650102,
+      "crossoverHz": 10.769709075148374,
+      "phaseMarginDeg": 65.35977078978918,
+      "maxPoleReal": -60.30285324924948,
+      "overshootPercent": 11.801414712080316,
+      "rise10to90Ms": 11.1,
+      "settling2PercentMs": 46.2,
+      "stable": true,
+      "meets60Degrees": true
+    }
+  }
+}

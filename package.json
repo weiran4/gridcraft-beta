@@ -1,0 +1,13 @@
+{
+  "name": "gridcraft-beta",
+  "version": "0.2.0-beta.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "start": "python -m http.server 4189 --bind 127.0.0.1",
+    "build": "node scripts/build-static.mjs",
+    "audit:static": "node scripts/audit-static.mjs",
+    "compare:pi": "node scripts/pi-comparison-data.mjs && python scripts/pi-comparison.py"
+  }
+}

@@ -1,0 +1,77 @@
+{
+  "format": "grid-strength",
+  "schemaVersion": 1,
+  "name": "Ideal grid reference",
+  "frequencyHz": 60,
+  "components": [
+    {
+      "id": "S1",
+      "type": "source",
+      "name": "Ideal grid",
+      "x": 260,
+      "y": 310,
+      "rotation": 0,
+      "parametersSI": {
+        "ratedVoltageV": 34500,
+        "frequencyHz": 60,
+        "phaseRad": 0
+      },
+      "extensions": {}
+    },
+    {
+      "id": "PCC1",
+      "type": "bus",
+      "name": "PCC 01",
+      "x": 570,
+      "y": 310,
+      "rotation": 0,
+      "parametersSI": {
+        "ratedVoltageV": 34500,
+        "isPcc": true,
+        "primaryIbrId": "INV1"
+      },
+      "extensions": {}
+    },
+    {
+      "id": "INV1",
+      "type": "gfm",
+      "name": "GFM 01",
+      "x": 850,
+      "y": 310,
+      "rotation": 0,
+      "parametersSI": {
+        "ratedApparentPowerVA": 100000000,
+        "ratedActivePowerW": 100000000,
+        "ratedReactivePowerVar": 0,
+        "ratedAcVoltageV": 34500,
+        "activePowerW": 50000000,
+        "reactivePowerVar": 0,
+        "filterResistanceOhm": 0.01,
+        "filterInductanceH": 0.001
+      },
+      "extensions": {}
+    }
+  ],
+  "wires": [
+    {
+      "id": "W1",
+      "from": "S1.AC",
+      "to": "PCC1.AC",
+      "mid": null
+    },
+    {
+      "id": "W2",
+      "from": "PCC1.AC",
+      "to": "INV1.AC",
+      "mid": null
+    }
+  ],
+  "editor": {
+    "zoom": 1,
+    "viewCenter": {
+      "x": 600,
+      "y": 350
+    }
+  },
+  "extensions": {}
+}

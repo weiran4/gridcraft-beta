@@ -1,0 +1,172 @@
+{
+  "format": "grid-strength",
+  "schemaVersion": 1,
+  "name": "Two-stage transformer network",
+  "frequencyHz": 60,
+  "components": [
+    {
+      "id": "S1",
+      "type": "source",
+      "name": "Grid source",
+      "x": 130,
+      "y": 310,
+      "rotation": 0,
+      "parametersSI": {
+        "ratedVoltageV": 115000,
+        "frequencyHz": 60,
+        "phaseRad": 0
+      },
+      "extensions": {}
+    },
+    {
+      "id": "RL1",
+      "type": "rl",
+      "name": "Grid RL",
+      "x": 320,
+      "y": 310,
+      "rotation": 0,
+      "parametersSI": {
+        "resistanceOhm": 1,
+        "inductanceH": 0.026525823848649224
+      },
+      "extensions": {}
+    },
+    {
+      "id": "T1",
+      "type": "transformer",
+      "name": "Transformer T1",
+      "x": 520,
+      "y": 310,
+      "rotation": 0,
+      "parametersSI": {
+        "ratedApparentPowerVA": 100000000,
+        "primaryVoltageV": 115000,
+        "secondaryVoltageV": 69000
+      },
+      "extensions": {}
+    },
+    {
+      "id": "RL2",
+      "type": "rl",
+      "name": "Line RL",
+      "x": 790,
+      "y": 310,
+      "rotation": 0,
+      "parametersSI": {
+        "resistanceOhm": 0.03,
+        "inductanceH": 0.0007957747154594768
+      },
+      "extensions": {}
+    },
+    {
+      "id": "PCC1",
+      "type": "bus",
+      "name": "PCC 01",
+      "x": 880,
+      "y": 310,
+      "rotation": 0,
+      "parametersSI": {
+        "ratedVoltageV": 34500,
+        "isPcc": true,
+        "primaryIbrId": "INV1"
+      },
+      "extensions": {}
+    },
+    {
+      "id": "INV1",
+      "type": "gfl",
+      "name": "GFL 01",
+      "x": 1060,
+      "y": 310,
+      "rotation": 0,
+      "parametersSI": {
+        "ratedApparentPowerVA": 100000000,
+        "ratedActivePowerW": 100000000,
+        "ratedReactivePowerVar": 0,
+        "ratedAcVoltageV": 34500,
+        "activePowerW": 50000000,
+        "reactivePowerVar": 0,
+        "filterResistanceOhm": 0.01,
+        "filterInductanceH": 0.001
+      },
+      "extensions": {}
+    },
+    {
+      "id": "RC1",
+      "type": "rc",
+      "name": "RC filter",
+      "x": 880,
+      "y": 510,
+      "rotation": 0,
+      "parametersSI": {
+        "resistanceOhm": 1,
+        "capacitanceF": 0.00009999999999999999
+      },
+      "extensions": {}
+    },
+    {
+      "id": "T2",
+      "type": "transformer",
+      "name": "Transformer T2",
+      "x": 660,
+      "y": 310,
+      "rotation": 0,
+      "parametersSI": {
+        "ratedApparentPowerVA": 100000000,
+        "primaryVoltageV": 69000,
+        "secondaryVoltageV": 34500
+      },
+      "extensions": {}
+    }
+  ],
+  "wires": [
+    {
+      "id": "W1",
+      "from": "S1.AC",
+      "to": "RL1.A",
+      "mid": null
+    },
+    {
+      "id": "W2",
+      "from": "RL1.B",
+      "to": "T1.A",
+      "mid": null
+    },
+    {
+      "id": "W4",
+      "from": "RL2.B",
+      "to": "PCC1.AC",
+      "mid": null
+    },
+    {
+      "id": "W5",
+      "from": "PCC1.AC",
+      "to": "INV1.AC",
+      "mid": null
+    },
+    {
+      "id": "W6",
+      "from": "PCC1.AC",
+      "to": "RC1.AC",
+      "mid": null
+    },
+    {
+      "id": "WT1",
+      "from": "T1.B",
+      "to": "T2.A"
+    },
+    {
+      "id": "WT2",
+      "from": "T2.B",
+      "to": "RL2.A"
+    }
+  ],
+  "editor": {
+    "zoom": 1,
+    "viewCenter": {
+      "x": 600,
+      "y": 350
+    }
+  },
+  "extensions": {}
+}
