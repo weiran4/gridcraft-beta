@@ -4,14 +4,14 @@
 
 - 独立项目：本仓库根目录
 - **直接上传目录：`dist/`**，上传其中的内容，不要再额外包一层 dist。
-- GitHub：`https://github.com/weiran4/gridcraft-beta`（私有仓库，需用户已有授权访问）。
-- 当前交付：`main` 分支最新提交，包含 GFM 内环 PI。界面版本仍为 `0.2.0-beta.1`；旧标签 `v0.2.0-beta.1` 不含本次更新，请勿按旧标签部署。
+- GitHub：`https://github.com/weiran4/gridcraft-beta`。
+- 当前交付：`main` 分支最新提交，包含 GFM 内环 PI、PCC 频率响应及独立 PQ 能力图。界面版本仍为 `0.2.0-beta.1`；旧标签 `v0.2.0-beta.1` 不含本次更新，请勿按旧标签部署。
 
 ## 部署方法
 
 将 dist 内容作为普通 HTTPS 静态站点发布，或挂到现有网站的 `/tools/gridcraft-beta/` 子路径。
 
-从 GitHub 拉取时，执行 `npm run build`，发布目录填 `dist`；无需安装依赖，Node 只运行文件复制脚本。也可以直接复制允许发布的文件：index.html、gfl.html、gfm.html、ui/、analysis/、components/、core/、project/、examples/。
+从 GitHub 拉取时，执行 `npm run build`，发布目录填 `dist`；无需安装依赖，Node 只运行文件复制脚本。也可以直接复制允许发布的文件：index.html、gfl.html、gfm.html、pcc.html、pq.html、ui/、analysis/、components/、core/、project/、examples/。
 
 **不需要 Python 后端、Node 服务、API 路由、数据库、Matlab、Simulink、Docker 或服务器函数。** 不要把 `start.bat` / `npm start` 配成线上服务；它们仅用于本地预览。
 

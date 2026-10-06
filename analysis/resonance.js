@@ -16,7 +16,7 @@ export function localResonance(project,rcId,ibrId){
 // This handles ideal turns ratios without treating a transformer as a same-voltage wire.
 export function prepareResonance(project,rcId){
  const errors=validateProject(project);if(errors.length)throw Error(errors.join('\n'));
- const rc=project.components.find(c=>c.id===rcId&&c.type==='rc');if(!rc)throw Error('请选择 RC 元件。');
+ const rc=project.components.find(c=>c.id===rcId&&(c.type==='rc'||(c.type==='bus'&&c.parametersSI.isPcc)));if(!rc)throw Error('请选择 RC 或 PCC 元件。');
  const g=buildGraph(project),start=g.net(rcId+'.AC'),ratios=new Map([[start,1]]),queue=[start];
  for(let i=0;i<queue.length;i++)for(const {edge,next} of g.adjacency.get(queue[i])||[]){
   const p=edge.component.parametersSI,turns=edge.component.type==='transformer'?(edge.a===queue[i]?p.secondaryVoltageV/p.primaryVoltageV:p.primaryVoltageV/p.secondaryVoltageV):1;

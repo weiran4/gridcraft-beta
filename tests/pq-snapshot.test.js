@@ -1,0 +1,2 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {demo} from '../examples/demo.js';import {pqSnapshot} from '../analysis/pq-snapshot.js';
+test('PQ snapshots follow PV/BESS while drafts cannot mutate projects',()=>{for(const [name,V,L]of [['pvfarm',315,63],['gfm480',480,146.3]]){const p=demo(name),before=JSON.stringify(p),s=pqSnapshot(p);assert.equal(s.state.V,V);assert.ok(Math.abs(s.state.L-L)<1e-9);assert.equal(s.state.Vdc,800);s.state.P=-1;s.state.L=999;assert.equal(JSON.stringify(p),before);}});
