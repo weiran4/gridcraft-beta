@@ -53,3 +53,7 @@ GFM 当前验证的是固定成网给定、理想 dq 解耦的标量内环模型
 ## Windows 双击启动
 
 Git 版本根目录包含 start.bat，配套 scripts/launch.py；完整解压后双击即可检测 Python 并打开浏览器。使用标准库，不安装依赖；支持重复启动识别、服务就绪检查和端口冲突回退。这些是本地预览辅助文件，不进入 dist，不是线上后端要求。
+
+## 独立演示站自动部署
+
+GitHub Pages 使用 `.github/workflows/pages.yml`。每次推送 main 后先运行测试、构建与静态审计，仅发布 dist 产物。部署失败时检查 Actions 中的 Deploy Gridcraft demo。此流程不部署其他仓库或私人网站。
