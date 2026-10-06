@@ -11,7 +11,7 @@ for(const file of files){
  const text=fs.readFileSync(file,'utf8');
  if(/\b(fetch|XMLHttpRequest|WebSocket|EventSource)\s*\(/.test(text))errors.push(file+': network API needs review');
  if(/(?:localhost|127\.0\.0\.1|file:\/\/)/.test(text))errors.push(file+': environment-specific runtime reference');
- const patterns=file.endsWith('.html')?[/<(?:script|link)\b[^>]*?(?:src|href)=["']([^"']+)["']/g]:file.endsWith('.js')?[/\b(?:import|export)\s+(?:[^;\n]*?\sfrom\s*)?["']([^"']+)["']/g]:[/url\(["']?([^)'"\s]+)/g];
+ const patterns=file.endsWith('.html')?[/<(?:script|link)\b[^>]*?(?:src|href|data-entry)=["']([^"']+)["']/g]:file.endsWith('.js')?[/\b(?:import|export)\s+(?:[^;\n]*?\sfrom\s*)?["']([^"']+)["']/g]:[/url\(["']?([^)'"\s]+)/g];
  for(const re of patterns)for(const match of text.matchAll(re)){
   const ref=match[1];if(ref.startsWith('data:')||ref.startsWith('#'))continue;
   if(!ref.startsWith('.')&&file.endsWith('.js')||/^(?:https?:|\/)/.test(ref)){errors.push(file+': non-relative asset '+ref);continue;}

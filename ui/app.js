@@ -4,7 +4,7 @@ import {operatingSummary} from './operating-summary.js?v=pq1';
 import {inverterOperatingContext} from '../analysis/operating-point.js?v=pq1';
 import {mountDcCapDesign} from './dc-cap-design.js?v=pq1';
 import {dcCapSummary} from './dc-cap-summary.js?v=pq1';
-import {projectStore} from '../project/sync.js?v=sync1';
+import {projectStore,ensureInitialProject} from '../project/sync.js?v=sync1';
 import {mountDcDesign} from './dc-design.js?v=pq1';
 import {mountRcDesign} from './rc-design.js?v=pq1';
 import {mountFilterDesign} from './filter-design.js?v=pq1';
@@ -79,7 +79,7 @@ function renderProperties(){const c=selected;compactInspector?.setSelection(c);i
   mountDcDesign($('filterDesign'),editor.project,c,values=>commit(()=>{c.extensions??={};c.extensions.dcDesign=values;}),(v,values)=>commit(()=>{c.extensions??={};c.extensions.dcDesign=values;c.parametersSI.voltageV=v;}));
   dialog.showModal();
  };
- if($('openPqView'))$('openPqView').onclick=()=>{location.href='pq.html?ibr='+encodeURIComponent(c.id);};
+ if($('openPqView'))$('openPqView').onclick=()=>{shared.write(editor.project);location.href='pq.html?ibr='+encodeURIComponent(c.id);};
  if($('designSelectedGfl'))$('designSelectedGfl').onclick=()=>{shared.write(editor.project);location.href=(c.type==='gfm'?'gfm.html':'gfl.html')+'?ibr='+encodeURIComponent(c.id);};
  $('componentName').addEventListener('change',e=>commit(()=>c.name=e.target.value));
  document.querySelectorAll('[data-param]').forEach(input=>input.addEventListener('change',()=>{const f=def.fields.find(f=>f.key===input.dataset.param),v=toSI(input.valueAsNumber,f.unit);if(!Number.isFinite(v)||v<f.min||(f.strict&&v===f.min)){$('parameterError').innerHTML='<div class="note error">请输入合法的有限数值；当前修改尚未应用。</div>';input.setAttribute('aria-invalid','true');return;}commit(()=>{c.parametersSI[f.key]=v;if(c.type==='source'&&f.key==='frequencyHz'){editor.project.frequencyHz=v;editor.project.components.filter(x=>x.type==='source').forEach(x=>x.parametersSI.frequencyHz=v);}});}));
@@ -163,3 +163,5 @@ window.addEventListener('pageshow',()=>{try{receiveProject(shared.read());}catch
 installInspectorResize($('inspectorResize'));
 compactInspector=installCompactInspector({panel:$('inspectorPanel'),toggle:$('toggleInspector'),close:$('closeInspector'),label:$('compactSelection'),canvas:$('canvas'),canOpen:()=>editor.tool==='select'&&!editor.space});
 summary();renderProperties();if(!restored)editor.fit();calculate();if(editor.project.components.some(c=>c.id===activePcc)){editor.select(activePcc);setTab('analysis');}
+
+try{ensureInitialProject(shared,editor.project);}catch(e){$('status').textContent='浏览器工程存储不可用：'+e.message;}

@@ -38,7 +38,7 @@ function renderMode(){
  $('modeExplanation').innerHTML=formulas[mode]+'<p>'+ref+'</p><p>ω 为 pu，θ 为 rad，ωb = 2πf₀；mp、nq 输入百分数，计算时除以 100；Pf/Qf 经 P/Q 滤波，Vf 经电压滤波。Vdc 滤波仅保存备用，本页没有 Vdc 外环。送网 P/Q 为正。</p>';
 }
 function renderGains(){$('diagramHost').innerHTML=gfmDiagram(gains,settings);}
-function invalidate(e){valid=false;$('error').textContent=e.message||String(e);$('exportPi').disabled=true;for(const n of ['bodePlot','metrics','stability','baseSummary','operatingNote','coupledSummary','coupledTable','polePlot','gainMode'])$(n).innerHTML='';$('validation').textContent='当前输入无效，结果已清除；请修正标红字段。';$('saveStatus').textContent='修改尚未保存';}
+function invalidate(e){valid=false;$('error').textContent=e.message||String(e);$('exportPi').disabled=true;for(const n of ['bodePlot','metrics','stability','baseSummary','operatingNote','coupledSummary','coupledTable','polePlot','gainMode'])$(n).innerHTML='';$('validation').textContent='当前输入无效，结果已清除；请修正标红字段。';$('saveStatus').textContent='修改尚未保存';$('bodePlot').textContent='尚未生成 Bode 图：'+(e.message||String(e));}
 function checkFields(){const bad=Array.from(document.querySelectorAll('input')).find(el=>!el.checkValidity()||el.getAttribute('aria-invalid')==='true');if(bad)throw Error('请先修正标红或空白输入。');}
 function plot(){
  validateGfmInput(input);validateGfmGains(gains);

@@ -31,3 +31,6 @@ export function projectStore(storage,parse,serialize,key='gridcraft-v1'){
   }
  };
 }
+
+// Seed the visible initial project before design pages read shared storage.
+export function ensureInitialProject(store,project){const saved=store.read();if(saved){store.accept(saved);return saved;}return store.write(project);}
