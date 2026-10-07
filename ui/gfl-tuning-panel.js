@@ -1,3 +1,4 @@
+import {mountStepPreview} from './gfl-step-preview.js';
 import {escapeHtml as esc} from './symbols.js';
 const number=(v,d=3)=>typeof v==='number'&&Number.isFinite(v)?Number(v.toPrecision(d)).toString():'—';
 const ms=v=>typeof v==='number'&&Number.isFinite(v)?number(v*1000)+' ms':'—';
@@ -16,8 +17,9 @@ export function mountGflTuningPanel(host,callbacks){
  <div class="advisor-actions"><button id="advisorAnalyze">分析当前 PI</button><button class="primary" id="advisorGenerate">生成候选</button><button id="advisorCancel" disabled>取消搜索</button><button id="advisorRestore" disabled>恢复应用前 PI</button></div>
  <p id="advisorStatus" role="status" aria-live="polite"></p><div id="advisorDiagnostics"></div>
  <div class="advisor-choice"><label>候选<select id="advisorChoice" disabled><option>尚未生成</option></select></label><button id="advisorApply" class="primary" disabled>应用所选候选</button></div>
- <div id="advisorCurrent" class="advisor-table"></div><p class="small-note">比较表不修改下方控制框图；框图和 Bode 始终对应当前 PI。生成候选不会改变电路或已有增益。</p>`;
+ <div id="advisorCurrent" class="advisor-table"></div><p class="small-note">比较表不修改下方控制框图；框图和 Bode 始终对应当前 PI。生成候选不会改变电路或已有增益。</p><section id="stepPreview"></section>`;
  const q=id=>host.querySelector('#'+id);
+ const preview=mountStepPreview(q('stepPreview'));
  host.addEventListener('change',e=>{const el=e.target,key=el.dataset.request;if(key){const raw={...callbacks.getRequest()};raw[key]=el.type==='checkbox'?el.checked:el.tagName==='SELECT'?el.value:el.value===''?null:el.valueAsNumber;callbacks.onRequest(raw);}else if(el.id==='advisorChoice')callbacks.onSelect(el.value);});
  for(const [id,fn]of [['advisorAnalyze','onAnalyze'],['advisorGenerate','onSearch'],['advisorCancel','onCancel'],['advisorApply','onApply'],['advisorRestore','onRestore']])q(id).onclick=()=>callbacks[fn]();
  return {render(model){
@@ -35,5 +37,6 @@ export function mountGflTuningPanel(host,callbacks){
   q('advisorDiagnostics').innerHTML=diagnostics.map(d=>`<p class="small-note${d.severity==='error'?' error':''}">${esc(d.field?d.field+'：':'')}${esc(d.message)}</p>`).join('')+(selected?.unmet?.length?`<p class="note warning">${selected.unmet.map(esc).join('；')}</p>`:'');
   const rows=['d','q','P','Q'].map(k=>{const a=current?.loops?.[k],b=selected?.evaluation?.loops?.[k];const hz=l=>l?.crossings?.map(x=>number(x.frequency)).join(' / ')||'—';return `<tr><td>${esc(labels[k]??k)}</td><td>${request.mode==='target'?number(k==='d'||k==='q'?request.fi:request.fp):'自动'}</td><td>${hz(a)}</td><td>${hz(b)}</td><td>${number(a?.minMargin)} / ${number(b?.minMargin)}</td><td>${ms(a?.step?.settlingTimeSeconds)} / ${ms(b?.step?.settlingTimeSeconds)}</td><td>${number(a?.step?.overshootPercent)} / ${number(b?.step?.overshootPercent)}</td><td>${number(a?.bandwidth?.hz)} / ${number(b?.bandwidth?.hz)}</td></tr>`;});
   q('advisorCurrent').innerHTML=`<table><thead><tr><th>环</th><th>目标 Hz</th><th>当前 Hz</th><th>候选 Hz</th><th>PM °<br>当前 / 候选</th><th>±2% 稳定时间<br>当前 / 候选</th><th>超调 %<br>当前 / 候选</th><th>−3 dB Hz<br>当前 / 候选</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
- },destroy(){host.replaceChildren();}};
+  preview.render({input:model.modelInput,currentGains:model.currentGains,candidateGains:stale?null:selected?.gains,stale,invalid:model.invalid,labels,candidateUnmet:Boolean(selected&&!selected.requirementsMet)});
+ },destroy(){preview.destroy();host.replaceChildren();}};
 }

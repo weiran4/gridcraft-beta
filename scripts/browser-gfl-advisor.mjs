@@ -37,3 +37,6 @@ try{
  for(const [name,width,height]of [['laptop',1366,768],['narrow',390,844]]){await page.setViewportSize({width,height});await page.screenshot({path:`artifacts/gfl-advisor/${name}.png`,fullPage:true});const overflow=await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+2);assert.equal(overflow,false,name+' horizontal document overflow');}
  assert.equal(errors.length,0,errors.join('\n'));writeFileSync('artifacts/gfl-advisor/browser-verification.json',JSON.stringify({passed:true,errors,checks:16},null,2));console.log('Browser regression: 16 flows passed.');
 }finally{await browser.close();server.close();}
+
+// Bounded response-preview addition; exercise the same dist build.
+await import('./browser-gfl-step.mjs');

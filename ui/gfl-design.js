@@ -46,7 +46,7 @@ const advisor=mountGflTuningPanel($('gflAdvisor'),{
  onAnalyze:()=>refresh(false,false),onSearch:generateCandidates,onCancel:()=>client.cancel(),
  onSelect:value=>{advisorSelected=value;renderAdvisor();},onApply:applySelected,onRestore:restoreSelected
 });
-function renderAdvisor(){if(!settings)return;const stored=project?.extensions?.gflPi?.[id];advisor.render({request,current:currentEvaluation,result:advisorResult,selectedId:advisorSelected,busy:client.busy,message:advisorMessage,stale:advisorStale,invalid:!valid,canRestore:Boolean(stored?.advisor?.undo&&stored.advisor.undo.mode===modeKey()),diagnostics:context?.diagnostics??[],labels:{P:settings.dMode,Q:settings.qMode}});}
+function renderAdvisor(){if(!settings)return;const stored=project?.extensions?.gflPi?.[id];advisor.render({modelInput:context?.modelInput,currentGains:gains,request,current:currentEvaluation,result:advisorResult,selectedId:advisorSelected,busy:client.busy,message:advisorMessage,stale:advisorStale,invalid:!valid,canRestore:Boolean(stored?.advisor?.undo&&stored.advisor.undo.mode===modeKey()),diagnostics:context?.diagnostics??[],labels:{P:settings.dMode,Q:settings.qMode}});}
 function generateCandidates(){
  const v=validateTuningRequest(request);if(!v.valid){advisorMessage='整定目标无效：'+v.errors.map(e=>e.message).join('；');renderAdvisor();return;}
  if(!valid){advisorMessage='请补齐有效的模型事实参数；目标设置不影响现有 PI 分析。';renderAdvisor();return;}
@@ -153,7 +153,7 @@ function diagramFilterEdit(e){
  if(!Number.isFinite(el.valueAsNumber)||el.valueAsNumber<0){
   el.setCustomValidity('滤波时间常数必须为非负有限数，0 表示旁路。');el.setAttribute('aria-invalid','true');
   valid=false;$('designError').textContent=el.validationMessage;$('saveStatus').textContent='滤波输入无效，请修正；尚未保存';
-  for(const n of ['bodePlot','bodeMetrics','gainSummary'])$(n).innerHTML='';return;
+  for(const n of ['bodePlot','bodeMetrics','gainSummary'])$(n).innerHTML='';renderAdvisor();return;
  }
  el.setCustomValidity('');el.removeAttribute('aria-invalid');
  const other=$('diagramHost').querySelector('[data-filter-setting][aria-invalid="true"], [data-gain][aria-invalid="true"]');
@@ -179,8 +179,8 @@ function gainEdit(e){
   number.value=Number.isFinite(display)?fmt(display):'∞';number.removeAttribute('aria-invalid');
   slider.disabled=!Number.isFinite(display);
   if(Number.isFinite(display)){if(k==='ti'&&!el.dataset.slider)slider.min=Math.max(Number.MIN_VALUE,display*1e-6);syncGainSlider(slider,display,Number.isFinite(rec)?rec:0,Boolean(el.dataset.slider));}
-  $('designError').textContent='';plot();valid=true;rememberGains();save();
- }catch(error){valid=false;el.setAttribute('aria-invalid','true');$('designError').textContent=error.message;$('saveStatus').textContent='PI 输入无效，请修正；尚未保存';for(const n of ['bodePlot','bodeMetrics','gainSummary'])$(n).innerHTML='';}
+  $('designError').textContent='';valid=true;plot();rememberGains();save();
+ }catch(error){valid=false;el.setAttribute('aria-invalid','true');$('designError').textContent=error.message;$('saveStatus').textContent='PI 输入无效，请修正；尚未保存';for(const n of ['bodePlot','bodeMetrics','gainSummary'])$(n).innerHTML='';renderAdvisor();}
 }
 
 try{const raw=localStorage.getItem(key);if(!raw)throw Error('请先返回电路并选择 GFL 元件。');project=parseProject(raw);shared.accept(project);id=new URLSearchParams(location.search).get('ibr');const c=getGfl(project,id);$('selectedIdentity').textContent=c.name+' · '+id;const stored=project.extensions?.gflPi?.[id]||{};settings=loadSettings(stored);request=requestFrom(stored);gainBank=structuredClone(stored.gainBank||{});gains=stored.gains?structuredClone(stored.gains):null;manual=stored.manual===true;drawTables();$('paperEquations').innerHTML=equationSet();$('bodeLegend').innerHTML=bodeLegend();refresh(false,false);}catch(e){invalidate(e);}

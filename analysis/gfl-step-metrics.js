@@ -61,15 +61,20 @@ export function linearStepMetrics(model,options={}){
  try{
   const stability=poleStability(model.denominator);if(stability.status!=='stable')return {...empty,status:stability.status};
   const gain=dcGain(model);if(!Number.isFinite(gain)||gain===0)return {...empty,status:'undefinedDcGain',dcGain:Number.isFinite(gain)?gain:null};
-  if(trim(model.denominator).length===1)return {...empty,status:'ok',dcGain:gain,riseTimeSeconds:0,overshootPercent:0,settlingTimeSeconds:0,windowSeconds:0,points:[{t:0,y:gain}],verification:{refined:true,method:'constant'}};
+  if(trim(model.denominator).length===1)return {...empty,status:'ok',dcGain:gain,riseTimeSeconds:0,overshootPercent:0,settlingTimeSeconds:0,windowSeconds:0,points:[{t:0,y:gain}],peakPoint:{t:0,y:gain},verification:{refined:true,method:'constant'}};
   const rate=Math.min(...stability.poles.map(z=>-z.re)),required=12/rate,maxWindow=options.maxWindowSeconds??1e6,window=Math.min(required,maxWindow);
   if(!(window>0)||!Number.isFinite(window))throw Error('观察窗无效。');
   const coarse=sample(model,stability.poles,window,48,options.maxPoints??20000),fine=sample(model,stability.poles,window,96,options.maxPoints??20000),a=metrics(coarse,gain),b=metrics(fine,gain);
   const agrees=(x,y,tol)=>x===null||y===null?x===y:Math.abs(x-y)<=tol;
   const verified=agrees(a.settlingTimeSeconds,b.settlingTimeSeconds,Math.max(.00002,.005*(b.settlingTimeSeconds??0)))&&agrees(a.riseTimeSeconds,b.riseTimeSeconds,Math.max(.00002,.01*(b.riseTimeSeconds??0)))&&Math.abs(a.overshootPercent-b.overshootPercent)<=.1;
   const tailOK=Math.abs(fine.at(-1).y/gain-1)<.005;
-  return {...b,status:required>maxWindow||b.settlingTimeSeconds===null||!tailOK?'windowExceeded':verified?'ok':'resolutionLimited',dcGain:gain,windowSeconds:window,
-   points:options.includePoints===false?[]:fine.filter((_,i)=>i%Math.max(1,Math.floor(fine.length/600))===0||i===fine.length-1),
+  // Decimation must not remove the extremum annotated by the preview.
+  const peakIndex=fine.reduce((best,p,i)=>p.y/gain>fine[best].y/gain?i:best,0);
+  const troughIndex=fine.reduce((best,p,i)=>p.y/gain<fine[best].y/gain?i:best,0);
+  const settlingIndex=b.settlingTimeSeconds===null?-1:fine.findIndex(p=>p.t>=b.settlingTimeSeconds);
+  const keep=new Set([0,fine.length-1,peakIndex,troughIndex,settlingIndex,settlingIndex-1]);
+  return {...b,peakPoint:fine[peakIndex],status:required>maxWindow||b.settlingTimeSeconds===null||!tailOK?'windowExceeded':verified?'ok':'resolutionLimited',dcGain:gain,windowSeconds:window,
+   points:options.includePoints===false?[]:fine.filter((_,i)=>i%Math.max(1,Math.floor(fine.length/600))===0||keep.has(i)),
    verification:{refined:verified,method:'balanced-state-space-exponential',samples:fine.length,settlingTolerance:.02}};
  }catch(error){return {...empty,status:'numericalFailure',message:error.message};}
 }
