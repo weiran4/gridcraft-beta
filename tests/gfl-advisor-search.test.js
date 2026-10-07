@@ -31,3 +31,12 @@ test('low target, zero R and bypassed sensors remain supported',()=>{
  const r=searchGflCandidates(local,{mode:'target',fi:.05,fp:.005,allowReduction:false,minMargin:45,preferredMargin:60},stored.gains,{maxInner:3});
  assert.ok(r.candidates.length>0);assert.ok(r.candidates.some(c=>c.requirementsMet));
 });
+test('automatic mode still reports unmet user time constraints',()=>{
+ const r=searchGflCandidates(p,{mode:'automatic',maxSettlingSeconds:1e-8},stored.gains,{maxInner:3,maxMilliseconds:60000});
+ assert.equal(r.searchStatus,'targetNotMet');assert.equal(r.targetStatus,'notSatisfied');assert.ok(r.candidates.every(c=>!c.requirementsMet));
+});
+test('explicit achievable crossover takes priority over optional lower-frequency alternatives',()=>{
+ const local={...p,considerScr:false,dMode:'P',qMode:'Q',R:0,filterCurrentMs:0,filterPqMs:0};
+ const r=searchGflCandidates(local,{mode:'target',fi:50,fp:5,allowReduction:true,minimumFi:1,minimumFp:.1,minMargin:45,preferredMargin:60},stored.gains,{maxInner:3,maxMilliseconds:60000});
+ assert.equal(r.targetStatus,'satisfied');assert.ok(r.candidates.every(c=>c.targetStatus==='satisfied'));
+});

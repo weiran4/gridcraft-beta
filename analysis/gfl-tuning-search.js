@@ -103,15 +103,17 @@ export function searchGflCandidates(input,rawRequest={},baselineGains=null,optio
    for(const d of best.P)for(const q of best.Q)assemble({...g,P:d.gain,Q:q.gain});
   }
   if(baselineGains){baselineEvaluation=evaluateGfl(p,baselineGains);assemble(baselineGains,true);}
-  result.searchStatus=all.length?(request.mode==='target'&&!all.some(c=>c.requirementsMet)?'targetNotMet':'feasibleFound'):'noCandidateFound';
+  result.searchStatus=all.length?(!all.some(c=>c.requirementsMet)&&(request.mode==='target'||request.maxOvershootPercent!==null||request.maxSettlingSeconds!==null)?'targetNotMet':'feasibleFound'):'noCandidateFound';
  }catch(error){result.searchStatus=['cancelled','budgetExceeded'].includes(error.message)?error.message:'numericalFailure';if(result.searchStatus==='numericalFailure')result.diagnostics.push({code:'search-failure',severity:'error',message:error.message});}
  let pool=all.filter(c=>c.requirementsMet);if(!pool.length)pool=all;
+ // Exact crossover goals precede optional reductions, before Pareto selection.
+ if(request.mode==='target'&&pool.some(c=>c.targetStatus==='satisfied'))pool=pool.filter(c=>c.targetStatus==='satisfied');
  let front=pool.every(c=>Number.isFinite(c.speed))?pareto(pool):pool;
  const score=c=>{const t=Math.max(...front.map(v=>Number.isFinite(v.speed)?v.speed:1)),o=Math.max(1,...front.map(v=>Number.isFinite(v.overshoot)?v.overshoot:1)),m=Math.max(...front.map(v=>v.minMargin),request.preferredMargin);return Number.isFinite(c.speed)?c.speed/t+c.overshoot/o+(m-c.minMargin)/m:1/c.minMargin;};
  front.sort((a,b)=>request.focus==='tracking'?(a.speed-b.speed||a.overshoot-b.overshoot):score(a)-score(b));
  const selected=[];const take=c=>{if(c&&!selected.includes(c)&&selected.length<3)selected.push(c);};take(front[0]);take([...front].sort((a,b)=>a.speed-b.speed)[0]);take([...front].sort((a,b)=>a.overshoot-b.overshoot||b.minMargin-a.minMargin)[0]);for(const c of front)take(c);
- result.candidates=selected;result.targetStatus=selected.some(c=>c.targetStatus==='satisfied')?'satisfied':selected.some(c=>c.targetStatus==='partiallySatisfied')?'partiallySatisfied':request.mode==='automatic'?'notSpecified':'notSatisfied';
- if(result.searchStatus==='budgetExceeded'||result.searchStatus==='cancelled'){result.candidates.forEach(c=>{c.incompleteSearch=true;});result.targetStatus='notSatisfied';}
+ result.candidates=selected;result.targetStatus=selected.some(c=>c.targetStatus==='satisfied')?'satisfied':selected.some(c=>c.targetStatus==='partiallySatisfied')?'partiallySatisfied':request.mode==='automatic'&&request.maxOvershootPercent===null&&request.maxSettlingSeconds===null?'notSpecified':selected.some(c=>c.requirementsMet)?'satisfied':'notSatisfied';
+ if(['budgetExceeded','cancelled','numericalFailure'].includes(result.searchStatus)){result.candidates.forEach(c=>{c.incompleteSearch=true;});result.targetStatus='notSatisfied';}
  result.budget.elapsedMilliseconds=performance.now()-started;result.budget.completedCandidates=all.length;
  result.diagnostics.push(...diagnoseGfl(input,request,baselineEvaluation,result));
  return result;
