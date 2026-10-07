@@ -40,3 +40,8 @@ export function restoreAppliedGains(project,ibrId,state){
  dest.manual=undo.manual;dest.advisor={...a,applicationStatus:'restored',appliedGains:null,undo:null};
  return next;
 }
+export function applicationEvidence(stored={},facts){
+ const a=stored.advisor;if(!a?.appliedGains)return {status:stored.gains?'baseline':'unapplied',evaluationCurrent:false};
+ const current=a.appliedMode===mode(stored)&&equal(stored.gains,a.appliedGains)&&a.factSnapshot===tuningSnapshot(facts);
+ return {status:current?'applied':'stale',evaluationCurrent:current};
+}

@@ -30,3 +30,13 @@ test('unrelated remote changes survive application and no-gain mode stays unappl
  assert.equal(tuningSnapshot({b:2,a:1}),tuningSnapshot({a:1,b:2}));
  assert.notEqual(tuningSnapshot({i:1,request:1}),tuningSnapshot({i:1,request:2}));
 });
+test('applied evaluation is marked stale after facts or gains change',async()=>{
+ const {applicationEvidence}=await import('../project/gfl-tuning-state.js');
+ assert.equal(typeof applicationEvidence,'function');
+ const p=load(),g=p.extensions.gflPi.PV1.gains;
+ const s={...p.extensions.gflPi.PV1,advisor:{appliedMode:'Vdc/Vac',appliedGains:g,factSnapshot:tuningSnapshot({R:1}),applicationStatus:'applied'}};
+ assert.equal(applicationEvidence(s,{R:1}).status,'applied');
+ assert.equal(applicationEvidence(s,{R:2}).status,'stale');
+ assert.equal(applicationEvidence({...s,gains:{...g,P:{kp:9,ki:10}}},{R:1}).status,'stale');
+ assert.equal(applicationEvidence(p.extensions.gflPi.PV1,{R:1}).status,'baseline');
+});
