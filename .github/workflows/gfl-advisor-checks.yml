@@ -18,6 +18,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Tracked source snapshot
+        run: |
+          mkdir -p artifacts/gfl-advisor
+          git archive --format=tar HEAD > artifacts/gfl-advisor/source.tar
+          git rev-parse HEAD > artifacts/gfl-advisor/source-commit.txt
       - name: Unit tests
         run: npm test
       - name: Build static site
