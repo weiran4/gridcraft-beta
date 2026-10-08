@@ -39,7 +39,9 @@ export function mountManualWorkspace(host,callbacks){
   for(const k of keys)for(const f of ['kp','ki']){const tag=k+'.'+f,n=numbers[tag],s=sliders[tag],v=display(gains,k,f),disabled=Boolean(model?.invalid);
    host.querySelector(`[data-manual-label="${tag}"]`).textContent=f==='kp'?'Kp':ti?'Ti / s':'Ki / s⁻¹';
    n.disabled=disabled;s.disabled=disabled||!Number.isFinite(v);
-   if(document.activeElement!==n||fromSlider===tag)n.value=Number.isFinite(v)?String(v):'∞';
+   // Explicit form/reset/selection changes must update even the focused field.
+   // Otherwise Ti=Infinity can remain visible under a Ki label after switching.
+   if(resetScale||document.activeElement!==n||fromSlider===tag)n.value=Number.isFinite(v)?String(v):'∞';
    if(resetScale||!s.dataset.initialized){s.max=String(gainSliderMax(Number.isFinite(v)?v:1,Number.isFinite(v)?v:1));s.min=f==='ki'&&ti?'1e-9':'0';s.dataset.initialized='true';}
    if(Number.isFinite(v)){if(v>Number(s.max)&&fromSlider!==tag)s.max=String(gainSliderMax(v,v));s.value=String(v);}
   }
