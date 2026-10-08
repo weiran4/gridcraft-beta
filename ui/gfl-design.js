@@ -180,7 +180,11 @@ function gainEdit(e){
   gains[loop][k==='ti'?'ki':k]=value;manual=true;
   const number=$('diagramHost').querySelector('[data-gain="'+tag+'"]'),slider=$('diagramHost').querySelector('[data-slider="'+tag+'"]');
   const display=k==='ti'?tiFromKi(value):value,rec=k==='ti'?tiFromKi(recommended[loop].ki):recommended[loop][k];
-  number.value=Number.isFinite(display)?fmt(display):'∞';number.removeAttribute('aria-invalid');
+  // Preserve the user's full-precision text. Reformatting the focused input
+  // schedules a second change on blur, which used to round the saved gain
+  // when Generate was clicked. Only a separate slider updates this field.
+  if(el.dataset.slider)number.value=Number.isFinite(display)?String(display):'∞';
+  number.removeAttribute('aria-invalid');
   slider.disabled=!Number.isFinite(display);
   if(Number.isFinite(display)){if(k==='ti'&&!el.dataset.slider)slider.min=Math.max(Number.MIN_VALUE,display*1e-6);syncGainSlider(slider,display,Number.isFinite(rec)?rec:0,Boolean(el.dataset.slider));}
   $('designError').textContent='';valid=true;plot();rememberGains();save();
