@@ -21,3 +21,8 @@ export function buildStepPreview({input,currentGains=null,candidateGains=null,lo
  }
  return {loop,reference:1,current:response(currentGains),candidate:response(candidateGains)};
 }
+
+/** One Worker request for four panels; the individual-loop API is unchanged. */
+export function buildStepGridPreview(payload){
+ return {reference:1,loops:Object.fromEntries(['d','q','P','Q'].map(loop=>[loop,buildStepPreview({...payload,loop})]))};
+}

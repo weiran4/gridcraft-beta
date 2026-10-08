@@ -1,3 +1,4 @@
+import {gflModelScope} from './gfl-model-scope.js';
 import {readGflModelInput,modelFacts,validateTuningRequest} from '../analysis/gfl-model-input.js';
 import {evaluateGfl} from '../analysis/gfl-linear-evaluation.js';
 import {gflLinearModels} from '../analysis/gfl-linear-model.js';
@@ -17,7 +18,7 @@ import {getGfl,connectedDc,setGflField} from '../project/gfl-settings.js?v=trans
 import {designGflPi} from '../analysis/gfl-pi.js?v=ti1';
 import {validateGains,frequencySweep,crossings} from '../analysis/gfl-frequency.js?v=scr1';
 import {controlDiagram} from './gfl-diagram.js?v=scr1';
-import {bodeSvg,bodeLegend} from './bode-plot.js?v=scr1';
+import {bodeLoopGrid,bodeLegend} from './bode-plot.js?v=scr1';
 import {equationSet,math,mi,mn,mo,sub,sup,frac,sqrt} from './paper-math.js?v=scr1';
 import {escapeHtml as esc} from './symbols.js?v=transformer-rx3';
 import {filterFields,filterDefaults,measurementFilters} from '../analysis/measurement-filters.js?v=scr1';
@@ -28,6 +29,9 @@ const settingKeys=['fi','fp',...targets.map(([k])=>k),...filterFields.map(([k])=
 const loadSettings=stored=>({factSources:Object.fromEntries(['fs','delaySamples',...filterFields.map(([k])=>k)].map(k=>[k,stored.factSources?.[k]??(stored[k]===undefined?'legacyDefault':'user')])),considerScr:false,dMode:'P',qMode:'Q',capSource:'applied',customCapUf:null,fs:20000,fi:500,fp:50,delaySamples:0,...filterDefaults,...Object.fromEntries(settingKeys.filter(k=>stored[k]!==undefined).map(k=>[k,stored[k]])),considerScr:stored.considerScr===true});
 const shared=projectStore(localStorage,parseProject,serializeProject);
 let project,id,settings,gains,manual=false,input,design,recommended,models,gainBank={},valid=false;
+let displayedSweep=null,bodeWidth=0;
+function drawBode(){const host=$('bodePlot');host.innerHTML=bodeLoopGrid(displayedSweep,{P:settings?.dMode??'P',Q:settings?.qMode??'Q'},{width:host.clientWidth||1200,columns:matchMedia('(max-width:900px)').matches?1:2});}
+function clearBode(){displayedSweep=null;drawBode();}
 let context,currentEvaluation=null,advisorResult=null,advisorSelected=null,advisorStale=false,advisorMessage='',request=validateTuningRequest({}).request;
 const emptyGains=()=>Object.fromEntries(['d','q','P','Q'].map(k=>[k,{kp:0,ki:0}]));
 const requestFrom=stored=>({...validateTuningRequest({}).request,fi:stored.fi??500,fp:stored.fp??50,...(stored.advisor?.request??{})});
@@ -46,7 +50,7 @@ const advisor=mountGflTuningPanel($('gflAdvisor'),{
  onAnalyze:()=>refresh(false,false),onSearch:generateCandidates,onCancel:()=>client.cancel(),
  onSelect:value=>{advisorSelected=value;renderAdvisor();},onApply:applySelected,onRestore:restoreSelected
 });
-function renderAdvisor(){if(!settings)return;const stored=project?.extensions?.gflPi?.[id];advisor.render({modelInput:context?.modelInput,currentGains:gains,request,current:currentEvaluation,result:advisorResult,selectedId:advisorSelected,busy:client.busy,message:advisorMessage,stale:advisorStale,invalid:!valid,canRestore:Boolean(stored?.advisor?.undo&&stored.advisor.undo.mode===modeKey()),diagnostics:context?.diagnostics??[],labels:{P:settings.dMode,Q:settings.qMode}});}
+function renderAdvisor(){if(!settings)return;if($('modelScope'))$('modelScope').textContent=gflModelScope(settings);const stored=project?.extensions?.gflPi?.[id];advisor.render({modelInput:context?.modelInput,currentGains:gains,request,current:currentEvaluation,result:advisorResult,selectedId:advisorSelected,busy:client.busy,message:advisorMessage,stale:advisorStale,invalid:!valid,canRestore:Boolean(stored?.advisor?.undo&&stored.advisor.undo.mode===modeKey()),diagnostics:context?.diagnostics??[],labels:{P:settings.dMode,Q:settings.qMode}});}
 function generateCandidates(){
  const v=validateTuningRequest(request);if(!v.valid){advisorMessage='整定目标无效：'+v.errors.map(e=>e.message).join('；');renderAdvisor();return;}
  if(!valid){advisorMessage='请补齐有效的模型事实参数；目标设置不影响现有 PI 分析。';renderAdvisor();return;}
@@ -109,7 +113,7 @@ function renderOuter(){
  document.querySelector('.design-title h1').textContent='GFL · '+settings.dMode+' / '+settings.qMode+' 双环整定';
  const parts=['现有 PI 与候选搜索独立。自动推荐不要求交越目标；指定目标未达到时明确提示。候选只调整 PI，物理参数保持固定，点击应用后才写入。'];
  if(settings.dMode==='Vdc')parts.push('总等效 Cbus = '+(input.dcCapacitanceF>0?fmt(input.dcCapacitanceF*1e6)+' μF':'尚未设置')+'；Vdc 基准 = '+fmt(input.dcVoltage)+' V。采用 Cbus·Vdc·dVdc/dt = Pdc − Pac，假设 DC 输入功率恒定。此分析不把母线钳位于理想电压源；独立电容不修改电路。');
- if(settings.qMode==='Vac')parts.push(input.gridError||('并网点 '+input.pccName+'：Rth = '+fmt(input.gridROhm)+' Ω，Xth = '+fmt(input.gridXOhm)+' Ω；Kvac = Xth / Zb = '+fmt(input.gridXOhm*input.ratedVA/input.voltageLL**2)+'。Vac 为额定点的低频电压灵敏度近似，另一通道保持不变；不含 PLL、网络谐振及 P/Q 耦合，不能据此认定弱网稳定。'));
+ if(settings.qMode==='Vac')parts.push(input.gridError||('并网点 '+input.pccName+'：Rth = '+fmt(input.gridROhm)+' Ω，Xth = '+fmt(input.gridXOhm)+' Ω；Kvac = Xth / Zb = '+fmt(input.gridXOhm*input.ratedVA/input.voltageLL**2)+'。Vac 为额定点的低频电压灵敏度近似，另一通道保持不变；已启用的电网/RC 动态仍参与标量通道，未包含 PLL、完整 dq 及外环耦合，不能据此认定完整弱网稳定。'));
  $('outerModelSummary').innerHTML=parts.map(t=>'<p class="small-note">'+esc(t)+'</p>').join('');
 }
 function renderFilters(){
@@ -122,12 +126,12 @@ function bases(){const b=design.base;
  const values=[['Vb',b.Vdq,'V',sqrt(frac(mn(2),mn(3)))+sub('V','LL')],['Ib',b.Idq,'A',frac(sqrt(mn(2))+sub('S','b'),sqrt(mn(3))+sub('V','LL'))],['Zb',b.Z,'Ω',frac(sup(sub('V','LL'),2),sub('S','b'))],['Lb',b.L,'H',frac(sub('Z','b'),sub('ω','b'))],['Rf,pu',design.Rpu,'pu',frac(sub('R','f'),sub('Z','b'))],['Lf,pu',design.Lpu,'pu',frac(sub('ω','b')+sub('L','f'),sub('Z','b'))]];
  $('baseTable').innerHTML='<table><thead><tr><th colspan="3">额定标幺基准 · 派生值</th></tr></thead><tbody>'+values.map(([n,v,u,f])=>'<tr><td>'+n+'<span class="base-formula">'+math(f)+'</span></td><td class="base-value">'+fmt(v)+'</td><td>'+u+'</td></tr>').join('')+'</tbody></table>';
 }
-function invalidate(error){valid=false;client.invalidate('模型输入无效，旧候选已过期。');currentEvaluation=null;for(const [k] of filterFields){const el=$('field-'+k);if(el)el.setAttribute('aria-invalid',String(!Number.isFinite(el.valueAsNumber)||el.valueAsNumber<0));}$('designError').textContent=error.message;if($('tuningSummary'))$('tuningSummary').innerHTML='';for(const n of ['bodePlot','bodeMetrics','gainSummary','baseTable','diagramHost','designWarnings','bodeLegend','paperEquations','gainMode'])$(n).innerHTML='';$('saveStatus').textContent='当前输入无效，请修正后继续';$('bodePlot').innerHTML='<div class="note error"><strong>尚未生成 Bode 图</strong><p>'+esc(error.message)+'</p></div>';if(settings?.qMode==='Vac'&&!settings.considerScr){const button=document.createElement('button');button.className='primary';button.textContent='启用 SCR 并计算 Vac / Bode';button.onclick=()=>{$('considerScr').checked=true;$('considerScr').onchange();};$('bodePlot').append(button);}}
+function invalidate(error){valid=false;client.invalidate('模型输入无效，旧候选已过期。');currentEvaluation=null;for(const [k] of filterFields){const el=$('field-'+k);if(el)el.setAttribute('aria-invalid',String(!Number.isFinite(el.valueAsNumber)||el.valueAsNumber<0));}$('designError').textContent=error.message;if($('tuningSummary'))$('tuningSummary').innerHTML='';for(const n of ['bodePlot','bodeMetrics','gainSummary','baseTable','diagramHost','designWarnings','bodeLegend','paperEquations','gainMode'])$(n).innerHTML='';$('saveStatus').textContent='当前输入无效，请修正后继续';clearBode();if(settings?.qMode==='Vac'&&!settings.considerScr){const button=document.createElement('button');button.className='primary';button.textContent='启用 SCR 并计算 Vac / Bode';button.onclick=()=>{$('considerScr').checked=true;$('considerScr').onchange();};$('bodePlot').append(button);}}
 function plot(){
- if(!gains){currentEvaluation=null;$('bodePlot').innerHTML='<p class="note">当前模式尚无已保存 PI。请生成候选后明确应用，或在框图中手动填写。</p>';for(const n of ['bodeMetrics','gainSummary'])$(n).innerHTML='';$('gainMode').textContent='未应用参数 · 框图中 0 为未配置值';renderAdvisor();return;}
+ if(!gains){currentEvaluation=null;clearBode();for(const n of ['bodeMetrics','gainSummary'])$(n).innerHTML='';$('gainMode').textContent='未应用参数 · 框图中 0 为未配置值';renderAdvisor();return;}
  validateGains(gains);const full=evaluateGfl(input,gains,{includeSeries:true});const {series,closedSeries,...evaluated}=full;currentEvaluation=evaluated;
  if(input.delaySamples===0){const rational=gflLinearModels(input,gains);for(const k of ['d','q','P','Q'])currentEvaluation.loops[k].step=linearStepMetrics(rational[k],{includePoints:false});}
- $('bodePlot').innerHTML=bodeSvg({min:full.scan.min,max:full.scan.max,series:$('bodeMode').value==='open'?series:closedSeries});
+ displayedSweep={min:full.scan.min,max:full.scan.max,series:$('bodeMode').value==='open'?series:closedSeries};drawBode();
  $('bodeMetrics').innerHTML='<table><thead><tr><th>当前控制环</th><th>全部开环交越 / Hz</th><th>相位裕度 / °</th><th>模型稳定性</th></tr></thead><tbody>'+Object.entries(currentEvaluation.loops).map(([k,l])=>'<tr><td>'+loopLabel(k)+'</td><td>'+(l.crossings.map(x=>fmt(x.frequency)).join(' / ')||'频段内无交越')+'</td><td>'+(l.crossings.map(x=>fmt(x.margin)).join(' / ')||'—')+'</td><td>'+esc(l.stability.status)+'</td></tr>').join('')+'</tbody></table>';
  $('gainSummary').innerHTML='<table><thead><tr><th>当前 PI</th><th>Kp · pu/pu</th><th>Ti · s</th><th>Ts / Ti</th></tr></thead><tbody>'+Object.entries(gains).map(([k,v])=>'<tr><td>'+loopLabel(k)+'</td><td>'+fmt(v.kp)+'</td><td>'+(v.ki===0?'∞（积分关闭）':fmt(tiFromKi(v.ki)))+'</td><td>'+fmt(v.ki/settings.fs)+'</td></tr>').join('')+'</tbody></table>';
  $('gainMode').textContent=(manual?'当前手动 PI。':'当前已保存 PI，导入时不重新生成。')+' '+(input.delaySamples!==0?'含纯延时：仅频域筛查，稳定性/时域未验证。':currentEvaluation.stability.status==='stable'?'当前零延时标量模型极点校核通过。':'当前模型稳定性：'+currentEvaluation.stability.status+'。');
@@ -153,7 +157,7 @@ function diagramFilterEdit(e){
  if(!Number.isFinite(el.valueAsNumber)||el.valueAsNumber<0){
   el.setCustomValidity('滤波时间常数必须为非负有限数，0 表示旁路。');el.setAttribute('aria-invalid','true');
   valid=false;$('designError').textContent=el.validationMessage;$('saveStatus').textContent='滤波输入无效，请修正；尚未保存';
-  for(const n of ['bodePlot','bodeMetrics','gainSummary'])$(n).innerHTML='';renderAdvisor();return;
+  for(const n of ['bodeMetrics','gainSummary'])$(n).innerHTML='';clearBode();renderAdvisor();return;
  }
  el.setCustomValidity('');el.removeAttribute('aria-invalid');
  const other=$('diagramHost').querySelector('[data-filter-setting][aria-invalid="true"], [data-gain][aria-invalid="true"]');
@@ -180,9 +184,10 @@ function gainEdit(e){
   slider.disabled=!Number.isFinite(display);
   if(Number.isFinite(display)){if(k==='ti'&&!el.dataset.slider)slider.min=Math.max(Number.MIN_VALUE,display*1e-6);syncGainSlider(slider,display,Number.isFinite(rec)?rec:0,Boolean(el.dataset.slider));}
   $('designError').textContent='';valid=true;plot();rememberGains();save();
- }catch(error){valid=false;el.setAttribute('aria-invalid','true');$('designError').textContent=error.message;$('saveStatus').textContent='PI 输入无效，请修正；尚未保存';for(const n of ['bodePlot','bodeMetrics','gainSummary'])$(n).innerHTML='';renderAdvisor();}
+ }catch(error){valid=false;el.setAttribute('aria-invalid','true');$('designError').textContent=error.message;$('saveStatus').textContent='PI 输入无效，请修正；尚未保存';for(const n of ['bodeMetrics','gainSummary'])$(n).innerHTML='';clearBode();renderAdvisor();}
 }
 
+const bodeObserver=typeof ResizeObserver!=='undefined'?new ResizeObserver(entries=>{const width=entries[0]?.contentRect.width??0;if(width>0&&Math.abs(width-bodeWidth)>.5){bodeWidth=width;drawBode();}}):null;bodeObserver?.observe($('bodePlot'));
 try{const raw=localStorage.getItem(key);if(!raw)throw Error('请先返回电路并选择 GFL 元件。');project=parseProject(raw);shared.accept(project);id=new URLSearchParams(location.search).get('ibr');const c=getGfl(project,id);$('selectedIdentity').textContent=c.name+' · '+id;const stored=project.extensions?.gflPi?.[id]||{};settings=loadSettings(stored);request=requestFrom(stored);gainBank=structuredClone(stored.gainBank||{});gains=stored.gains?structuredClone(stored.gains):null;manual=stored.manual===true;drawTables();$('paperEquations').innerHTML=equationSet();$('bodeLegend').innerHTML=bodeLegend();refresh(false,false);}catch(e){invalidate(e);}
 $('diagramHost').addEventListener('change',diagramFilterEdit);
 $('diagramHost').addEventListener('input',gainEdit);$('diagramHost').addEventListener('change',gainEdit);
