@@ -1,5 +1,6 @@
+import {mountGflDqPanel} from './gfl-dq-panel.js';
 import {mountManualWorkspace} from './gfl-manual-workspace.js';
-import {mountStepPreview} from './gfl-step-preview.js';
+import {mountStepPreview} from './gfl-step-preview.js?v=dq1';
 import {escapeHtml as esc} from './symbols.js';
 const number=(v,d=3)=>typeof v==='number'&&Number.isFinite(v)?Number(v.toPrecision(d)).toString():'—';
 const ms=v=>typeof v==='number'&&Number.isFinite(v)?number(v*1000)+' ms':'—';
@@ -18,10 +19,14 @@ export function mountGflTuningPanel(host,callbacks){
  <div class="advisor-actions"><button id="advisorAnalyze">分析当前 PI</button><button class="primary" id="advisorGenerate">生成候选</button><button id="advisorCancel" disabled>取消搜索</button><button id="advisorRestore" disabled>恢复应用前 PI</button></div>
  <p id="advisorStatus" role="status" aria-live="polite"></p><div id="advisorDiagnostics"></div>
  <div class="advisor-choice"><label>候选<select id="advisorChoice" disabled><option>尚未生成</option></select></label><button id="advisorApply" class="primary" disabled>应用所选候选</button></div>
- <div id="advisorCurrent" class="advisor-table"></div><p class="small-note">比较表不修改下方控制框图；控制框图仍对应当前 PI；Bode 的参数来源会明确标出。试调或生成候选不会应用参数。</p><section id="stepPreview"></section>`;
+ <div id="advisorCurrent" class="advisor-table"></div><p class="small-note">比较表不修改下方控制框图；控制框图仍对应当前 PI；Bode 的参数来源会明确标出。试调或生成候选不会应用参数。</p><section id="stepPreview"></section><section id="gflDqPanel"></section>`;
  const q=id=>host.querySelector('#'+id);
  const preview=mountStepPreview(q('stepPreview'));
- let lastModel=null,manualView=null;
+ let lastModel=null,manualView=null,dqGate={enabled:false},baseApplyDisabled=true,baseManualDisabled=true;
+ function gateButtons(){const blocked=dqGate.enabled&&(dqGate.busy||!dqGate.ready||!dqGate.candidate?.applicationEligible||dqGate.error);
+  q('advisorApply').disabled=!!(baseApplyDisabled||blocked);const button=host.querySelector('#manualApply');if(button)button.disabled=!!(baseManualDisabled||blocked);
+ }
+ const dqPanel=mountGflDqPanel(q('gflDqPanel'),{onSettings:callbacks.onDqSettings,onState:state=>{dqGate=state;gateButtons();}});
  const workspace=mountManualWorkspace(q('stepPreview'),{
   onChange:()=>{if(lastModel)render(lastModel);},onStart:callbacks.onManualStart,
   onComparison:callbacks.onManualComparison,onSelect:callbacks.onSelect,
@@ -42,7 +47,7 @@ export function mountGflTuningPanel(host,callbacks){
   if(manualView.active&&!candidates.some(c=>c.id===selected?.id))candidates.push(selected);
   const option=(c,text)=>`<option value="${esc(c.id)}"${c.id===selected?.id?' selected':''}>${esc(text)}</option>`;
   q('advisorChoice').innerHTML=(selected?'':'<option value="">选择候选（不应用）</option>')+
-   (autoCandidates.length?'<optgroup label="自动搜索">'+autoCandidates.map(c=>option(c,(c.isBaseline?'原参数基线':c.id)+(c.requirementsMet?' · 已校核':' · 要求未全部满足'))).join('')+'</optgroup>':'')+
+   (autoCandidates.length?'<optgroup label="自动搜索">'+autoCandidates.map(c=>option(c,(c.isBaseline?'原参数基线':c.id)+(c.requirementsMet?' · 标量已校核':' · 要求未全部满足'))).join('')+'</optgroup>':'')+
    (manualCandidates.length?'<optgroup label="手动暂存">'+manualCandidates.map(c=>option(c,c.name+' · 选择后重新校核')).join('')+'</optgroup>':'')+
    (manualView.active&&selected.id==='manual-draft'?option(selected,'手动试调（尚未命名暂存）'):'');
   q('advisorChoice').value=selected?.id??'';
@@ -52,11 +57,14 @@ export function mountGflTuningPanel(host,callbacks){
   q('advisorStatus').textContent=message||(stale?'候选已过期，请重新生成。':result?statusNames[result.searchStatus]:'当前 PI 保持原值。选择整定方式后生成候选。');
   q('advisorStatus').className=(stale||model.invalid||['targetNotMet','noCandidateFound','invalidRequest','numericalFailure'].includes(result?.searchStatus))?'note warning':'small-note';
   if(manualView.active)q('advisorStatus').textContent=manualView.invalid?'试调输入无效；当前 PI 保持原值。':manualView.busy?'正在校核手动试调；当前 PI 保持原值。':selected?.requirementsMet?'手动试调已通过当前要求；尚未应用。':'手动试调尚未满足全部要求，可命名暂存后继续比较。';
+  if(model.dqSettings?.enabled)q('advisorStatus').textContent+=' 已启用 PLL/dq，应用还须通过下方联立模型校核。';
   const diagnostics=[...(model.diagnostics??[]),...(manualView.active?[]:(result?.diagnostics??[]))];
   q('advisorDiagnostics').innerHTML=diagnostics.map(d=>`<p class="small-note${d.severity==='error'?' error':''}">${esc(d.field?d.field+'：':'')}${esc(d.message)}</p>`).join('')+(selected?.unmet?.length?`<p class="note warning">${selected.unmet.map(esc).join('；')}</p>`:'');
   const rows=['d','q','P','Q'].map(k=>{const a=current?.loops?.[k],b=selected?.evaluation?.loops?.[k];const hz=l=>l?.crossings?.map(x=>number(x.frequency)).join(' / ')||'—';return `<tr><td>${esc(labels[k]??k)}</td><td>${request.mode==='target'?number(k==='d'||k==='q'?request.fi:request.fp):'自动'}</td><td>${hz(a)}</td><td>${hz(b)}</td><td>${number(a?.minMargin)} / ${number(b?.minMargin)}</td><td>${ms(a?.step?.settlingTimeSeconds)} / ${ms(b?.step?.settlingTimeSeconds)}</td><td>${number(a?.step?.overshootPercent)} / ${number(b?.step?.overshootPercent)}</td><td>${number(a?.bandwidth?.hz)} / ${number(b?.bandwidth?.hz)}</td></tr>`;});
   q('advisorCurrent').innerHTML=`<table><thead><tr><th>环</th><th>目标 Hz</th><th>当前 Hz</th><th>候选 Hz</th><th>PM °<br>当前 / 候选</th><th>±2% 稳定时间<br>当前 / 候选</th><th>超调 %<br>当前 / 候选</th><th>−3 dB Hz<br>当前 / 候选</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
+  baseApplyDisabled=q('advisorApply').disabled;baseManualDisabled=host.querySelector('#manualApply')?.disabled??true;
   preview.render({input:model.modelInput,currentGains:model.currentGains,candidateGains:manualView.active?(manualView.invalid?null:selected?.gains):(stale?null:selected?.gains),stale:manualView.active?false:stale,invalid:model.invalid,labels,candidateUnmet:Boolean(selected&&!selected.requirementsMet),comparisonLabel:manualView.active?selected.name:'候选 PI'});
+  dqPanel.render({input:model.dqInput??model.modelInput,settings:model.dqSettings,currentGains:model.currentGains,candidateGains:manualView.active?(manualView.invalid?null:selected?.gains):(stale?null:selected?.gains),invalid:model.invalid,stale:manualView.active?false:stale});gateButtons();
  }
- return {render,destroy(){workspace.destroy();preview.destroy();host.replaceChildren();}};
+ return {render,destroy(){workspace.destroy();preview.destroy();dqPanel.destroy();host.replaceChildren();}};
 }

@@ -70,7 +70,8 @@ export function mountStepPreview(host,{workerFactory=()=>new Worker(new URL('./g
  }):null;
  Object.values(plots).forEach(p=>observer?.observe(p));
  return {render(next){
-  model=next;const labels=next.labels??{P:'P',Q:'Q'},names={d:'d 轴电流环',q:'q 轴电流环',P:labels.P+' 外环',Q:labels.Q+' 外环'};
+  model=next;const labels=next.labels??{P:'P',Q:'Q'},names=next.titles??{d:'d 轴电流环',q:'q 轴电流环',P:labels.P+' 外环',Q:labels.Q+' 外环'};
+  if(next.boundary)host.querySelector('.step-boundary').textContent=next.boundary;
   for(const k of keys)q('stepTitle-'+k).textContent=names[k];host.querySelectorAll('.step-comparison-name').forEach(el=>{el.textContent=next.comparisonLabel??'候选 PI';el.title=el.textContent;});update();
  },destroy(){destroyed=true;observer?.disconnect();if(resizeFrame!==null)cancelAnimationFrame(resizeFrame);client.destroy();host.replaceChildren();}};
 }

@@ -39,6 +39,11 @@ jobs:
         run: |
           node scripts/validate-gfm-advisor.mjs
           python scripts/validate-gfm-advisor.py
+      - name: GFL PLL dq independent model checks
+        if: ${{ hashFiles('scripts/validate-gfl-dq.py') != '' }}
+        run: |
+          node scripts/validate-gfl-dq.mjs
+          python scripts/validate-gfl-dq.py
       - name: Browser checks
         if: ${{ hashFiles('scripts/browser-gfl-advisor.mjs') != '' }}
         env:
@@ -59,6 +64,10 @@ jobs:
         env:
           SITE_DIR: dist
         run: node scripts/browser-gfm-advisor.mjs
+      - name: PLL and GFM step interactions
+        env:
+          SITE_DIR: dist
+        run: node scripts/browser-pll-and-gfm-step.mjs
       - name: Validation artifacts
         if: always()
         uses: actions/upload-artifact@v4

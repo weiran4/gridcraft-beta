@@ -1,3 +1,5 @@
+import {readDqSettings,saveDqSettings} from '../project/gfl-dq-settings.js';
+import {assertDqApplication} from '../analysis/gfl-dq-analysis.js';
 import {listManualCandidates,saveManualCandidate,renameManualCandidate,deleteManualCandidate} from '../project/gfl-manual-candidates.js';
 import {manualContextKey} from './gfl-manual-workspace.js';
 import {gflModelScope} from './gfl-model-scope.js';
@@ -7,7 +9,7 @@ import {gflLinearModels} from '../analysis/gfl-linear-model.js';
 import {linearStepMetrics} from '../analysis/gfl-step-metrics.js';
 import {createTuningState,previewCandidate,applyCandidate,restoreAppliedGains,tuningSnapshot,applicationEvidence} from '../project/gfl-tuning-state.js';
 import {createTuningClient} from './gfl-tuning-client.js';
-import {mountGflTuningPanel} from './gfl-tuning-panel.js';
+import {mountGflTuningPanel} from './gfl-tuning-panel.js?v=dq1';
 import {tiFromKi,kiFromTi,piTimeParameters} from '../analysis/pi-time.js?v=ti1';
 import {outerContext,outerModels} from '../analysis/gfl-outer.js?v=scr1';
 import {operatingSummary} from './operating-summary.js?v=pq1';
@@ -59,11 +61,12 @@ const advisor=mountGflTuningPanel($('gflAdvisor'),{
  onRequest:next=>{request=next;client.invalidate('整定目标已改变；现有 PI 不变。');save();renderAdvisor();},
  onAnalyze:()=>refresh(false,false),onSearch:generateCandidates,onCancel:()=>client.cancel(),
  onSelect:value=>{advisorSelected=value;renderAdvisor();},onApply:applySelected,onRestore:restoreSelected,
+ onDqSettings:patch=>{const latest=shared.read()??project;project=shared.write(saveDqSettings(latest,id,patch));renderAdvisor();},
  onManualStart:()=>{if(client.busy)client.cancel();},
  onManualComparison:value=>{manualBode=value.active?value:null;if($('bodePiSource'))$('bodePiSource').value=value.active?'comparison':'current';drawBode();},
  onManualSave:saveNamedManual,onManualRename:renameNamedManual,onManualDelete:deleteNamedManual,onManualApply:applyNamedManual
 });
-function renderAdvisor(){if(!settings)return;if($('modelScope'))$('modelScope').textContent=gflModelScope(settings);const stored=project?.extensions?.gflPi?.[id];advisor.render({manualCandidates:listManualCandidates(project,id,modeKey()),modelInput:context?.modelInput,currentGains:gains,request,current:currentEvaluation,result:advisorResult,selectedId:advisorSelected,busy:client.busy,message:advisorMessage,stale:advisorStale,invalid:!valid,canRestore:Boolean(stored?.advisor?.undo&&stored.advisor.undo.mode===modeKey()),diagnostics:context?.diagnostics??[],labels:{P:settings.dMode,Q:settings.qMode}});}
+function renderAdvisor(){if(!settings)return;if($('modelScope'))$('modelScope').textContent=gflModelScope(settings);const stored=project?.extensions?.gflPi?.[id];advisor.render({dqInput:{...context?.modelInput,switchingFrequencyHz:getGfl(project,id).extensions?.filterDesign?.fs??null},dqSettings:readDqSettings(project,id),manualCandidates:listManualCandidates(project,id,modeKey()),modelInput:context?.modelInput,currentGains:gains,request,current:currentEvaluation,result:advisorResult,selectedId:advisorSelected,busy:client.busy,message:advisorMessage,stale:advisorStale,invalid:!valid,canRestore:Boolean(stored?.advisor?.undo&&stored.advisor.undo.mode===modeKey()),diagnostics:context?.diagnostics??[],labels:{P:settings.dMode,Q:settings.qMode}});}
 function generateCandidates(){
  const v=validateTuningRequest(request);if(!v.valid){advisorMessage='整定目标无效：'+v.errors.map(e=>e.message).join('；');renderAdvisor();return;}
  if(!valid){advisorMessage='请补齐有效的模型事实参数；目标设置不影响现有 PI 分析。';renderAdvisor();return;}
@@ -72,8 +75,9 @@ function generateCandidates(){
 function applySelected(){try{
  const candidate=advisorResult?.candidates.find(c=>c.id===advisorSelected)??advisorResult?.candidates[0];if(!candidate||advisorStale||client.busy)throw Error('候选不可应用或已过期。');
  const latest=shared.read()??project,key=snapshot(latest);if(key!==advisorResult.snapshotKey)throw Error('工程或 PI 已改变，候选已过期。');
+ const dqCheck=assertDqApplication(context.modelInput,candidate.gains,readDqSettings(latest,id));
  const stored=latest.extensions?.gflPi?.[id]??{dMode:settings.dMode,qMode:settings.qMode},state=previewCandidate(createTuningState(stored),candidate,key);
- const next=applyCandidate(latest,id,state,key);next.extensions.gflPi[id].advisor.factSnapshot=tuningSnapshot(context.modelInput);next.extensions.gflPi[id].advisor.request=structuredClone(request);
+ const next=applyCandidate(latest,id,state,key);next.extensions.gflPi[id].advisor.dqVerification=dqCheck;next.extensions.gflPi[id].advisor.factSnapshot=tuningSnapshot(context.modelInput);next.extensions.gflPi[id].advisor.request=structuredClone(request);
  receiveProject(shared.write(next));advisorMessage='候选已明确应用；仅更新所选 GFL 的 PI。';renderAdvisor();
  }catch(error){advisorMessage=error.message;advisorStale=true;renderAdvisor();}}
 function restoreSelected(){try{const latest=shared.read()??project,next=restoreAppliedGains(latest,id,createTuningState(latest.extensions.gflPi[id]));receiveProject(shared.write(next));advisorMessage='已恢复应用前 PI；电气参数未回滚。';renderAdvisor();}catch(error){advisorMessage=error.message;renderAdvisor();}}
@@ -91,9 +95,10 @@ function deleteNamedManual(candidateId){project=shared.write(deleteManualCandida
 function applyNamedManual(candidate,key){try{
  const latest=shared.read()??project;if(key!==manualLatestKey(latest))throw Error('模型、目标或当前 PI 已改变；试调校核已过期。');
  if(!candidate?.verified||!candidate?.requirementsMet)throw Error('试调参数未满足当前模型或目标约束，只能暂存比较。');
+ const dqCheck=assertDqApplication(context.modelInput,candidate.gains,readDqSettings(latest,id));
  const applicationKey=snapshot(latest),stored=latest.extensions?.gflPi?.[id]??{dMode:settings.dMode,qMode:settings.qMode};
  const state=previewCandidate(createTuningState(stored),candidate,applicationKey),next=applyCandidate(latest,id,state,applicationKey);
- next.extensions.gflPi[id].advisor.factSnapshot=tuningSnapshot(context.modelInput);next.extensions.gflPi[id].advisor.request=structuredClone(request);
+ next.extensions.gflPi[id].advisor.dqVerification=dqCheck;next.extensions.gflPi[id].advisor.factSnapshot=tuningSnapshot(context.modelInput);next.extensions.gflPi[id].advisor.request=structuredClone(request);
  receiveProject(shared.write(next));advisorMessage='已明确应用手动方案；控制框图、当前响应与参数导出已同步。';renderAdvisor();
  }catch(error){advisorMessage=error.message;renderAdvisor();}}
 

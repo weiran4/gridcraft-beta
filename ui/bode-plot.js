@@ -24,7 +24,7 @@ export const bodeLegend=(labels={})=>'<div class="bode-legend">'+Object.entries(
 /** GFL-only layout. The original overlay API remains available to GFM. */
 export function bodeLoopGrid(sweep,labels={},options={}){
  const width=options.width??1200,columns=options.columns??2,plotWidth=Math.max(260,(width-(columns-1)*16)/columns-24);
- const names={d:'d 轴电流环',q:'q 轴电流环',P:(labels.P??'P')+' 外环',Q:(labels.Q??'Q')+' 外环'};
+ const names=options.titles??{d:'d 轴电流环',q:'q 轴电流环',P:(labels.P??'P')+' 外环',Q:(labels.Q??'Q')+' 外环'};
  return '<div class="bode-loop-grid">'+['d','q','P','Q'].map(k=>{
   const valid=sweep&&sweep.min>0&&sweep.max>sweep.min&&sweep.series?.[k]?.length;
   const chart=valid?bodeSvg({...sweep,series:{[k]:sweep.series[k]}},{compact:true,width:plotWidth,label:names[k]+' 幅频及相频图'}):'<div class="bode-empty">当前输入无效或尚未配置 PI；未绘制曲线。</div>';

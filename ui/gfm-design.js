@@ -1,7 +1,7 @@
 import {gfmFacts,evaluateGfm,validateGfmMode,checkGfmRequirements} from '../analysis/gfm-tuning-advisor.js';
 import {validateTuningRequest} from '../analysis/gfl-model-input.js';
 import {readGfmAdvisor,gfmFactKeys,gfmAdvisorRequest,gfmSnapshot,saveGfmAdvisorSettings,switchGfmMode,applyGfmCandidate,restoreGfmCandidate} from '../project/gfm-advisor-state.js';
-import {mountGfmTuningPanel} from './gfm-tuning-panel.js';
+import {mountGfmTuningPanel} from './gfm-tuning-panel.js?v=dq1';
 import {createTuningClient} from './gfl-tuning-client.js';
 import {gfmDiagram} from './gfm-diagram.js?v=scr1';
 import {analyzeGfmMode} from '../analysis/gfm-dynamics.js?v=scr1';
@@ -124,7 +124,7 @@ async function load(p,saveAfter=false){try{
  }catch(e){project=p;settings=gfmSettings(p,id);gains=settings.gains;coupled={};try{renderInputs();renderGains();$('retune').disabled=false;}catch{}invalidate(e);}}
 function renderAdvisor(){
  if(!advisor||!settings)return;const undo=project?.extensions?.gfmPi?.[id]?.advisor?.undo;
- advisor.render({request,current:currentEvaluation,result:advisorResult,selectedId,busy:searchClient.busy,stale,message:advisorMessage,invalid:!valid,
+ advisor.render({input,currentGains:gains,request,current:currentEvaluation,result:advisorResult,selectedId,busy:searchClient.busy,stale,message:advisorMessage,invalid:!valid,
   canRestore:Boolean(undo&&undo.mode===settings.mode),modeName:gfmModes[settings.mode]});
 }
 function generateCandidates(){
