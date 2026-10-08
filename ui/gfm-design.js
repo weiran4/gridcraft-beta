@@ -12,7 +12,7 @@ import {crossings} from '../analysis/gfl-frequency.js?v=outer1';
 import {kiFromTi,tiFromKi} from '../analysis/pi-time.js?v=ti1';
 import {projectStore} from '../project/sync.js?v=sync1';
 import {parseProject,serializeProject} from '../project/model.js?v=transformer-rx3';
-import {bodeSvg,bodeLegend} from './bode-plot.js?v=outer1';
+import {bodeLoopGrid} from './bode-plot.js?v=outer1';
 import {escapeHtml as esc} from './symbols.js?v=transformer-rx3';
 const $=id=>document.getElementById(id),fmt=n=>Number.isFinite(n)?Number(n.toPrecision(7)).toString():'—';
 const labels={d:'电流 d',q:'电流 q',P:'电压 d',Q:'电压 q'},key='gridcraft-v1',shared=projectStore(localStorage,parseProject,serializeProject);
@@ -21,6 +21,7 @@ const targets=[['fs','控制步长 Ts','μs'],['delaySamples','纯延时 N × Ts
 const filters=[['filterPqMs','P/Q 时间常数','ms'],['filterVdcMs','Vdc 时间常数（预留）','ms'],['filterVoltageMs','交流电压时间常数','ms'],['filterCurrentMs','电感电流时间常数','ms'],['feedforwardCurrent','送网电流前馈 F','pu'],['feedforwardVoltage','电压前馈 av','pu']];
 const modeDefs={droop:[['mp','P–f 下垂','%'],['nq','Q–V 下垂','%']],vsg:[['h','虚拟惯量 H','s'],['d','频率阻尼 D','pu'],['nq','Q–V 下垂','%'],['kv','电压积分增益 Kv','s⁻¹']],sync:[['h','虚拟惯量 H','s'],['d','频率阻尼 D','pu'],['nq','Q–V 下垂','%'],['ke','励磁积分增益 Ke','s⁻¹']]};
 let project,id,settings,input,gains,tuning,coupled={},valid=false,busy=false,revision=0,pendingRemote=false;
+let bodeWidth=0;
 let currentEvaluation=null,request=validateTuningRequest({}).request,advisorResult=null,selectedId=null,stale=false,advisorMessage='',advisor;
 const emptyGains=()=>Object.fromEntries(['d','q','P','Q'].map(k=>[k,{kp:0,ki:0}]));
 const activeSnapshot=()=>gfmSnapshot({input,settings,gains,request});
@@ -64,7 +65,7 @@ function plot(){
  }
  validateGfmGains(gains);currentEvaluation=evaluateGfm(input,gains,settings.mode,settings.modes[settings.mode]);
  const sweep=gfmSweep(input,gains,$('bodeMode').value,1201),open=$('bodeMode').value==='open'?sweep:gfmSweep(input,gains,'open',1201);
- $('bodeLegend').innerHTML=bodeLegend(labels);$('bodePlot').innerHTML=bodeSvg(sweep);
+ $('bodeLegend').innerHTML='';$('bodePlot').innerHTML=bodeLoopGrid(sweep,{}, {width:$('bodePlot').clientWidth||1200,columns:matchMedia('(max-width:900px)').matches?1:2,titles:{d:'d 轴电流环',q:'q 轴电流环',P:'d 轴电压环',Q:'q 轴电压环'}});
  const polys=input.delaySamples===0?gfmPolynomials(input,gains):null,stable=polys?Object.fromEntries(Object.entries(polys).map(([k,c])=>[k,isHurwitz(c)])):null;
  const good=stable&&Object.values(stable).every(Boolean);
  $('stability').textContent=stable?(good?'四个标量闭环通过 Routh 校核':'存在未通过 Routh 校核的闭环'):'含纯延时 · 未给出极点稳定性结论';$('stability').className=stable&&!good?'error':'small-note';
@@ -164,6 +165,7 @@ document.addEventListener('change',async e=>{
  }catch(err){el.setAttribute('aria-invalid','true');invalidate(err);}
 });
 document.addEventListener('click',async e=>{const mode=e.target.closest('[data-mode]')?.dataset.mode;if(!mode||busy)return;try{checkFields();const next=switchGfmMode(shared.read()??project,id,mode);await receive(shared.write(next));}catch(err){invalidate(err);}});
+const bodeResizeObserver=typeof ResizeObserver==='undefined'?null:new ResizeObserver(entries=>{const width=entries[0]?.contentRect.width??0;if(width>0&&Math.abs(width-bodeWidth)>1){bodeWidth=width;if(valid&&!busy&&gains)try{plot();}catch(e){invalidate(e);}}});bodeResizeObserver?.observe($('bodePlot'));
 $('retune').onclick=generateCandidates;
 $('bodeMode').onchange=()=>{if(valid&&!busy)try{plot();}catch(e){invalidate(e);}};
 $('exportPi').onclick=()=>{if(!valid||busy||!gains)return;const parameters=Object.fromEntries(Object.entries(labels).map(([k,l])=>[k,{label:l,kp:gains[k].kp,tiSeconds:gains[k].ki?1/gains[k].ki:null,integratorEnabled:gains[k].ki>0,kiPerSecond:gains[k].ki}]));const data={schema:'gridcraft-gfm-pi-v3',project:project.name,ibrId:id,mode:settings.mode,modeParameters:settings.modes,inputs:input,parameters,piForm:'Kp + 1/(Ti*s)',convention:{current:'converter-to-grid',park:'d=cos,q=-sin',error:'reference-minus-measured',piOutputSign:1},analysisScope:settings.considerScr?'Single converter, RC and grid RL; coupled dq linearization about high-voltage equilibrium; rigid DC; no saturation or current limits; synchronverter torque/flux variant with cascaded inner loops':'Local scalar Lf/RC, ideal voltage feedforward and decoupling, fixed load current; grid/forming dynamics excluded',coupledResults:coupled,selectedModeStable:settings.considerScr?coupled[settings.mode]?.stable===true:null,manual:settings.manual,currentEvaluation,autoTuning:{...(project.extensions?.gfmPi?.[id]?.advisor??{}),request,searchStatus:advisorResult?.searchStatus??'notRun',candidateStatus:stale?'stale':'preview',storedGainsPreserved:true}};const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='gfm-pi-'+id+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
