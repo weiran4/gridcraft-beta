@@ -20,12 +20,14 @@ export function applyCandidate(project,ibrId,state,currentSnapshotKey){
  if(!equal(stored.gains??null,state.baselineGains))throw Error('现有 PI 已改变，不能应用旧候选。');
  const c=state.candidate;if(!c||!c.verified||!c.requirementsMet||c.incompleteSearch)throw Error('候选尚未完成全部要求的验证，不能作为推荐自动应用。');
  validateGains(c.gains);
+ const manual=c.source==='manual';
+ const evaluation=copy(c.evaluation);if(evaluation){delete evaluation.series;delete evaluation.closedSeries;}
  const next=copy(project);next.extensions??={};next.extensions.gflPi??={};
  const dest=next.extensions.gflPi[ibrId]??={};
  const undo={mode:state.mode,gains:copy(stored.gains)??null,manual:stored.manual===true};
- Object.assign(dest,{gains:copy(c.gains),manual:false,gainBank:{...(dest.gainBank??{}),[state.mode]:{gains:copy(c.gains),manual:false}}});
- dest.advisor={...(dest.advisor??{}),policyId:'gfl-tuning-advisor-v1',policyVersion:1,applicationStatus:'applied',appliedMode:state.mode,
-  appliedGains:copy(c.gains),snapshotKey:currentSnapshotKey,candidateId:c.id,evaluation:copy(c.evaluation),targetStatus:c.targetStatus,undo};
+ Object.assign(dest,{gains:copy(c.gains),manual,gainBank:{...(dest.gainBank??{}),[state.mode]:{gains:copy(c.gains),manual}}});
+ dest.advisor={...(dest.advisor??{}),policyId:manual?'gfl-manual-evaluation-v1':'gfl-tuning-advisor-v1',policyVersion:1,applicationStatus:'applied',appliedMode:state.mode,
+  appliedGains:copy(c.gains),snapshotKey:currentSnapshotKey,candidateId:c.id,candidateSource:manual?'manual':'auto',candidateName:c.name??null,evaluation,targetStatus:c.targetStatus,undo};
  return next;
 }
 export function restoreAppliedGains(project,ibrId,state){

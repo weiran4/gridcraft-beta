@@ -17,7 +17,7 @@ export function mountStepPreview(host,{workerFactory=()=>new Worker(new URL('./g
  <p id="stepPreviewNotice" class="step-notice" role="status" aria-live="polite"></p>
  <div id="stepPreviewPlot" class="step-loop-grid">${keys.map(k=>`<section class="step-loop-card" data-step-loop="${k}"><h4 id="stepTitle-${k}"></h4>
  <div id="stepPlot-${k}" class="step-plot" aria-label="${k} 响应图"></div>
- <div class="step-metric-slot" data-step-metrics="${k}"><table class="step-comparison"><thead><tr><th>指标</th><th class="step-current">当前 PI</th><th class="step-candidate">候选 PI</th></tr></thead><tbody>${fields.map(([key,label])=>`<tr><th>${label}</th><td data-step-metric="${k}-current-${key}">—</td><td data-step-metric="${k}-candidate-${key}">—</td></tr>`).join('')}</tbody></table></div>
+ <div class="step-metric-slot" data-step-metrics="${k}"><table class="step-comparison"><thead><tr><th>指标</th><th class="step-current">当前 PI</th><th class="step-candidate"><span class="step-comparison-name">候选 PI</span></th></tr></thead><tbody>${fields.map(([key,label])=>`<tr><th>${label}</th><td data-step-metric="${k}-current-${key}">—</td><td data-step-metric="${k}-candidate-${key}">—</td></tr>`).join('')}</tbody></table></div>
  <p id="stepNotice-${k}" class="step-loop-notice"></p></section>`).join('')}</div>
  <p class="step-caption">每格内两条曲线共用时间和幅值坐标；不同环的自动视窗可不同。0→1 是小扰动的归一化增量，不是从零电压启动或满功率阶跃。</p>
  <details class="step-scope"><summary>曲线和指标怎样读？</summary><p>实线为当前 PI，虚线为候选；圆点标峰值，竖虚线标稳定时间。浅色带是目标 1±2%。上升时间按最终变化量的 10%→90% 计算；超调和稳定时间以各自解析最终值为基准。最终误差为 1−最终值，以单位参考增量的百分比显示。</p><p>若最终值不等于 1，另画该最终值的 ±2% 带，并保留最终误差，不把每条输出强行缩放到 1。自动视窗聚焦该格较慢响应；完整观察窗显示已计算尾部，不外推未计算的波形。</p></details>
@@ -71,6 +71,6 @@ export function mountStepPreview(host,{workerFactory=()=>new Worker(new URL('./g
  Object.values(plots).forEach(p=>observer?.observe(p));
  return {render(next){
   model=next;const labels=next.labels??{P:'P',Q:'Q'},names={d:'d 轴电流环',q:'q 轴电流环',P:labels.P+' 外环',Q:labels.Q+' 外环'};
-  for(const k of keys)q('stepTitle-'+k).textContent=names[k];update();
+  for(const k of keys)q('stepTitle-'+k).textContent=names[k];host.querySelectorAll('.step-comparison-name').forEach(el=>{el.textContent=next.comparisonLabel??'候选 PI';el.title=el.textContent;});update();
  },destroy(){destroyed=true;observer?.disconnect();if(resizeFrame!==null)cancelAnimationFrame(resizeFrame);client.destroy();host.replaceChildren();}};
 }

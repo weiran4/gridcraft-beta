@@ -1,3 +1,4 @@
+import {mountManualWorkspace} from './gfl-manual-workspace.js';
 import {mountStepPreview} from './gfl-step-preview.js';
 import {escapeHtml as esc} from './symbols.js';
 const number=(v,d=3)=>typeof v==='number'&&Number.isFinite(v)?Number(v.toPrecision(d)).toString():'—';
@@ -17,26 +18,45 @@ export function mountGflTuningPanel(host,callbacks){
  <div class="advisor-actions"><button id="advisorAnalyze">分析当前 PI</button><button class="primary" id="advisorGenerate">生成候选</button><button id="advisorCancel" disabled>取消搜索</button><button id="advisorRestore" disabled>恢复应用前 PI</button></div>
  <p id="advisorStatus" role="status" aria-live="polite"></p><div id="advisorDiagnostics"></div>
  <div class="advisor-choice"><label>候选<select id="advisorChoice" disabled><option>尚未生成</option></select></label><button id="advisorApply" class="primary" disabled>应用所选候选</button></div>
- <div id="advisorCurrent" class="advisor-table"></div><p class="small-note">比较表不修改下方控制框图；框图和 Bode 始终对应当前 PI。生成候选不会改变电路或已有增益。</p><section id="stepPreview"></section>`;
+ <div id="advisorCurrent" class="advisor-table"></div><p class="small-note">比较表不修改下方控制框图；控制框图仍对应当前 PI；Bode 的参数来源会明确标出。试调或生成候选不会应用参数。</p><section id="stepPreview"></section>`;
  const q=id=>host.querySelector('#'+id);
  const preview=mountStepPreview(q('stepPreview'));
- host.addEventListener('change',e=>{const el=e.target,key=el.dataset.request;if(key){const raw={...callbacks.getRequest()};raw[key]=el.type==='checkbox'?el.checked:el.tagName==='SELECT'?el.value:el.value===''?null:el.valueAsNumber;callbacks.onRequest(raw);}else if(el.id==='advisorChoice')callbacks.onSelect(el.value);});
- for(const [id,fn]of [['advisorAnalyze','onAnalyze'],['advisorGenerate','onSearch'],['advisorCancel','onCancel'],['advisorApply','onApply'],['advisorRestore','onRestore']])q(id).onclick=()=>callbacks[fn]();
- return {render(model){
+ let lastModel=null,manualView=null;
+ const workspace=mountManualWorkspace(q('stepPreview'),{
+  onChange:()=>{if(lastModel)render(lastModel);},onStart:callbacks.onManualStart,
+  onComparison:callbacks.onManualComparison,onSelect:callbacks.onSelect,
+  onSave:callbacks.onManualSave,onRename:callbacks.onManualRename,onDelete:callbacks.onManualDelete,onApply:callbacks.onManualApply
+ });
+ host.addEventListener('change',e=>{const el=e.target,key=el.dataset.request;if(key){const raw={...callbacks.getRequest()};raw[key]=el.type==='checkbox'?el.checked:el.tagName==='SELECT'?el.value:el.value===''?null:el.valueAsNumber;callbacks.onRequest(raw);}else if(el.id==='advisorChoice'){workspace.select();callbacks.onSelect(el.value||null);}});
+ for(const [id,fn]of [['advisorAnalyze','onAnalyze'],['advisorGenerate','onSearch'],['advisorCancel','onCancel'],['advisorRestore','onRestore']])q(id).onclick=()=>callbacks[fn]();
+ q('advisorApply').onclick=()=>{if(manualView?.active)callbacks.onManualApply(manualView.candidate,manualView.contextKey);else callbacks.onApply();};
+ function render(model){
+  lastModel=model;
   const {request,current,result,selectedId,busy,message,stale,canRestore,labels={P:'P',Q:'Q'}}=model;
   for(const el of host.querySelectorAll('[data-request]')){const value=request[el.dataset.request];if(el.type==='checkbox')el.checked=Boolean(value);else if(document.activeElement!==el)el.value=value??'';}
   host.querySelector('.target-only').hidden=request.mode!=='target';q('advisorGenerate').disabled=Boolean(busy);q('advisorCancel').disabled=!busy;q('advisorAnalyze').disabled=Boolean(model.invalid);q('advisorRestore').disabled=!canRestore;
-  const candidates=result?.candidates??[],selected=candidates.find(c=>c.id===selectedId)??candidates[0];
-  q('advisorChoice').innerHTML=candidates.length?candidates.map(c=>`<option value="${esc(c.id)}"${c===selected?' selected':''}>${esc(c.isBaseline?'原参数基线':c.id)} · ${c.verified?'零延时模型已校核':'仅频域筛查'}${c.requirementsMet?'':' · 要求未全部满足'}</option>`).join(''):'<option>尚无可比较的候选</option>';
+  const autoCandidates=result?.candidates??[],selectedAuto=autoCandidates.find(c=>c.id===selectedId)??(selectedId?.startsWith('manual-')?null:autoCandidates[0]);
+  manualView=workspace.sync(model,selectedAuto);
+  const selected=manualView.active?manualView.candidate:selectedAuto;
+  const manualCandidates=model.manualCandidates??[],candidates=[...autoCandidates,...manualCandidates];
+  if(manualView.active&&!candidates.some(c=>c.id===selected?.id))candidates.push(selected);
+  const option=(c,text)=>`<option value="${esc(c.id)}"${c.id===selected?.id?' selected':''}>${esc(text)}</option>`;
+  q('advisorChoice').innerHTML=(selected?'':'<option value="">选择候选（不应用）</option>')+
+   (autoCandidates.length?'<optgroup label="自动搜索">'+autoCandidates.map(c=>option(c,(c.isBaseline?'原参数基线':c.id)+(c.requirementsMet?' · 已校核':' · 要求未全部满足'))).join('')+'</optgroup>':'')+
+   (manualCandidates.length?'<optgroup label="手动暂存">'+manualCandidates.map(c=>option(c,c.name+' · 选择后重新校核')).join('')+'</optgroup>':'')+
+   (manualView.active&&selected.id==='manual-draft'?option(selected,'手动试调（尚未命名暂存）'):'');
+  q('advisorChoice').value=selected?.id??'';
   q('advisorChoice').disabled=!candidates.length||busy;
-  q('advisorApply').disabled=Boolean(model.invalid||busy||stale||!selected?.verified||!selected?.requirementsMet||selected?.incompleteSearch);
+  q('advisorApply').disabled=Boolean(model.invalid||busy||(manualView.active?(manualView.busy||manualView.invalid):stale)||!selected?.verified||!selected?.requirementsMet||selected?.incompleteSearch);
   const statusNames={feasibleFound:'候选已生成；尚未应用',targetNotMet:'目标未满足；下列为可比较的备选',noCandidateFound:'本次搜索未找到完成校核的候选',budgetExceeded:'预算耗尽；不能据此断言不可行',cancelled:'已取消',invalidRequest:'整定目标无效',numericalFailure:'数值校核未完成'};
   q('advisorStatus').textContent=message||(stale?'候选已过期，请重新生成。':result?statusNames[result.searchStatus]:'当前 PI 保持原值。选择整定方式后生成候选。');
   q('advisorStatus').className=(stale||model.invalid||['targetNotMet','noCandidateFound','invalidRequest','numericalFailure'].includes(result?.searchStatus))?'note warning':'small-note';
-  const diagnostics=[...(model.diagnostics??[]),...(result?.diagnostics??[])];
+  if(manualView.active)q('advisorStatus').textContent=manualView.invalid?'试调输入无效；当前 PI 保持原值。':manualView.busy?'正在校核手动试调；当前 PI 保持原值。':selected?.requirementsMet?'手动试调已通过当前要求；尚未应用。':'手动试调尚未满足全部要求，可命名暂存后继续比较。';
+  const diagnostics=[...(model.diagnostics??[]),...(manualView.active?[]:(result?.diagnostics??[]))];
   q('advisorDiagnostics').innerHTML=diagnostics.map(d=>`<p class="small-note${d.severity==='error'?' error':''}">${esc(d.field?d.field+'：':'')}${esc(d.message)}</p>`).join('')+(selected?.unmet?.length?`<p class="note warning">${selected.unmet.map(esc).join('；')}</p>`:'');
   const rows=['d','q','P','Q'].map(k=>{const a=current?.loops?.[k],b=selected?.evaluation?.loops?.[k];const hz=l=>l?.crossings?.map(x=>number(x.frequency)).join(' / ')||'—';return `<tr><td>${esc(labels[k]??k)}</td><td>${request.mode==='target'?number(k==='d'||k==='q'?request.fi:request.fp):'自动'}</td><td>${hz(a)}</td><td>${hz(b)}</td><td>${number(a?.minMargin)} / ${number(b?.minMargin)}</td><td>${ms(a?.step?.settlingTimeSeconds)} / ${ms(b?.step?.settlingTimeSeconds)}</td><td>${number(a?.step?.overshootPercent)} / ${number(b?.step?.overshootPercent)}</td><td>${number(a?.bandwidth?.hz)} / ${number(b?.bandwidth?.hz)}</td></tr>`;});
   q('advisorCurrent').innerHTML=`<table><thead><tr><th>环</th><th>目标 Hz</th><th>当前 Hz</th><th>候选 Hz</th><th>PM °<br>当前 / 候选</th><th>±2% 稳定时间<br>当前 / 候选</th><th>超调 %<br>当前 / 候选</th><th>−3 dB Hz<br>当前 / 候选</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
-  preview.render({input:model.modelInput,currentGains:model.currentGains,candidateGains:stale?null:selected?.gains,stale,invalid:model.invalid,labels,candidateUnmet:Boolean(selected&&!selected.requirementsMet)});
- },destroy(){preview.destroy();host.replaceChildren();}};
+  preview.render({input:model.modelInput,currentGains:model.currentGains,candidateGains:manualView.active?(manualView.invalid?null:selected?.gains):(stale?null:selected?.gains),stale:manualView.active?false:stale,invalid:model.invalid,labels,candidateUnmet:Boolean(selected&&!selected.requirementsMet),comparisonLabel:manualView.active?selected.name:'候选 PI'});
+ }
+ return {render,destroy(){workspace.destroy();preview.destroy();host.replaceChildren();}};
 }

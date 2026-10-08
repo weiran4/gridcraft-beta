@@ -10,7 +10,7 @@ export const policyId='gfl-tuning-advisor-v1';
 const keys=['d','q','P','Q'],logGrid=(a,b,n)=>Array.from({length:n},(_,i)=>a*(b/a)**(i/(n-1)));
 const unit=()=>Object.fromEntries(keys.map(k=>[k,{kp:1,ki:0}]));
 const gainAt=(z,f,r)=>{const kp=1/(Math.hypot(z.re,z.im)*Math.hypot(1,r));return {kp,ki:kp*r*2*Math.PI*f};};
-function targetCheck(e,request){
+export function targetCheck(e,request){
  const unmet=[];let exact=true,accepted=true;
  for(const k of keys){const l=e.loops[k],fc=l.crossings[0]?.frequency,desired=k==='d'||k==='q'?request.fi:request.fp,min=k==='d'||k==='q'?request.minimumFi:request.minimumFp;
   if(request.mode==='target'){
