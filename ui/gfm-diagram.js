@@ -4,7 +4,7 @@ const text=(x,y,t,cls='')=>`<text x="${x}" y="${y}" class="${cls}">${t}</text>`;
 const line=(d,cls='')=>`<path d="${d}" class="signal ${cls}" marker-end="url(#gfmArrow)"/>`;
 const sum=(x,y)=>`<circle cx="${x}" cy="${y}" r="14" class="sum"/>`+text(x-5,y+5,'+');
 const rect=(x,y,w,h)=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" class="plant"/>`;
-const f=n=>Number.isFinite(n)?Number(n.toPrecision(7)):'∞';
+const f=n=>Number.isFinite(n)?String(n):'∞';
 export function gfmDiagram(g,s){
  const names={d:'电流 d',q:'电流 q',P:'电压 d',Q:'电压 q'},mode=s.mode,m=s.modes[mode];
  const filter=(x,y,key,label)=>rect(x-55,y,110,66)+`<foreignObject x="${x-52}" y="${y+3}" width="104" height="61"><div xmlns="http://www.w3.org/1999/xhtml" class="filter-fields"><div class="tf"><span>1</span><span>1 + sT</span></div><label>T = <input aria-label="图内 ${label}时间常数" type="number" min="0" step="any" required data-setting="${key}" value="${s[key]}"/> ms</label></div></foreignObject>`;

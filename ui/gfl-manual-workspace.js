@@ -8,7 +8,7 @@ const keys=['d','q','P','Q'],zero=()=>Object.fromEntries(keys.map(k=>[k,{kp:0,ki
 export const manualContextKey=m=>tuningSnapshot({input:m.modelInput,currentGains:m.currentGains??null,request:m.request});
 export function mountManualWorkspace(host,callbacks){
  const bar=document.createElement('section');bar.id='manualWorkspace';bar.className='manual-workspace';
- bar.innerHTML=`<div class="manual-controls"><strong>手动试调 · 不覆盖当前 PI</strong><label>积分参数 <select id="manualIntegralForm"><option value="ki">Kp / Ki</option><option value="ti">Kp / Ti</option></select></label><label class="manual-link"><input id="manualLinkedDq" type="checkbox">d/q 联动</label><button id="manualReset">恢复到当前 PI</button><button id="manualApply" class="primary" disabled>应用试调参数</button></div>
+ bar.innerHTML=`<div class="manual-controls"><strong>手动试调 · 不覆盖当前 PI</strong><label>积分参数 <select id="manualIntegralForm"><option value="ki">Kp / Ki</option><option value="ti">Kp / Ti</option></select></label><label class="manual-link"><input id="manualLinkedDq" type="checkbox">同步调整 d/q 电流环参数</label><button id="manualReset">恢复到当前 PI</button><button id="manualApply" class="primary" disabled>应用试调参数</button></div>
  <div class="manual-names"><label>方案名称<input id="manualName" maxlength="80" placeholder="例如：外环更稳 · 方案 A"></label><button id="manualSave">暂存为命名候选</button><button id="manualRename" disabled>重命名所选</button><button id="manualDelete" disabled>删除所选</button></div>
  <p id="manualStatus" role="status">拖动下方滑条开始试调；暂存会保存全部四环参数，不会替换当前 PI。</p>`;
  host.querySelector('.step-loop-grid').before(bar);

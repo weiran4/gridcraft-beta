@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import {demo} from '../examples/demo.js';
 import {serializeProject,parseProject} from '../project/model.js';
 
-test('GFM automatic edit merges an unrelated remote update received during tuning',async()=>{
+test('GFM explicit fact edit preserves PI and merges an unrelated remote update',async()=>{
  const project=demo('gfm480');project.extensions.gfmPi={GFM1:{considerScr:true}};let raw=serializeProject(project);
  const elements=new Map(),handlers={},windowHandlers={};
- function element(id){if(!elements.has(id))elements.set(id,{id,dataset:{},disabled:false,value:id==='bodeMode'?'open':'',innerHTML:'',textContent:'',setAttribute(){},removeAttribute(){},getAttribute(){return null;},checkValidity(){return true;}});return elements.get(id);}
+ function element(id){if(!elements.has(id))elements.set(id,{id,dataset:{},classList:{add(){}},addEventListener(){},querySelector:selector=>element(selector.startsWith('#')?selector.slice(1):selector),querySelectorAll:()=>[],replaceChildren(){},disabled:false,value:id==='bodeMode'?'open':'',innerHTML:'',textContent:'',setAttribute(){},removeAttribute(){},getAttribute(){return null;},checkValidity(){return true;}});return elements.get(id);}
  const controls=['retune','exportPi','bodeMode'].map(element);
  globalThis.document={getElementById:element,querySelectorAll:selector=>selector==='input,button,select'?controls:[],addEventListener:(type,handler)=>handlers[type]=handler};
  globalThis.window={addEventListener:(type,handler)=>windowHandlers[type]=handler};
@@ -18,5 +18,5 @@ test('GFM automatic edit merges an unrelated remote update received during tunin
  const remote=parseProject(raw);remote.name='Remote title';raw=serializeProject(remote);windowHandlers.storage({key:'gridcraft-v1'});
  await pending;await settle();
  const result=parseProject(raw),L=result.components.find(c=>c.id==='GFM1').parametersSI.filterInductanceH;
- assert.ok(Math.abs(L-160e-6)<1e-12);assert.equal(result.name,'Remote title');assert.equal(element('error').textContent,'');
+ assert.ok(Math.abs(L-160e-6)<1e-12);assert.equal(result.name,'Remote title');assert.equal(element('error').textContent,'');assert.equal(result.extensions.gfmPi.GFM1.gains,undefined);
 });

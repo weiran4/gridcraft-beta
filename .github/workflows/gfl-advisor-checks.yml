@@ -35,6 +35,10 @@ jobs:
           python -m pip install numpy scipy
           node scripts/validate-gfl-advisor.mjs
           python scripts/validate-gfl-advisor.py
+      - name: GFM independent numeric check
+        run: |
+          node scripts/validate-gfm-advisor.mjs
+          python scripts/validate-gfm-advisor.py
       - name: Browser checks
         if: ${{ hashFiles('scripts/browser-gfl-advisor.mjs') != '' }}
         env:
@@ -51,6 +55,10 @@ jobs:
         env:
           SITE_DIR: dist
         run: node scripts/browser-gfl-manual.mjs
+      - name: GFM advisor interaction checks
+        env:
+          SITE_DIR: dist
+        run: node scripts/browser-gfm-advisor.mjs
       - name: Validation artifacts
         if: always()
         uses: actions/upload-artifact@v4
