@@ -47,6 +47,10 @@ jobs:
         env:
           SITE_DIR: dist
         run: node scripts/browser-gfl-four-panel.mjs
+      - name: Manual candidate interaction checks
+        env:
+          SITE_DIR: dist
+        run: node scripts/browser-gfl-manual.mjs
       - name: Validation artifacts
         if: always()
         uses: actions/upload-artifact@v4
