@@ -23,15 +23,17 @@ export function listManualCandidates(project,ibrId,mode){
   if(!safeId(id)||c?.id!==id||c.source!=='manual'||!modes.includes(c.mode)||c.mode!==mode)return [];
   // Never trust an imported evaluation/verified flag. Always evaluate on selection.
   return [{id,name:nameOf(c.name),source:'manual',mode:c.mode,gains:copyGains(c.gains),factSnapshot:typeof c.factSnapshot==='string'?c.factSnapshot:null,
-   requestSnapshot:typeof c.requestSnapshot==='string'?c.requestSnapshot:null,createdAt:typeof c.createdAt==='string'?c.createdAt:null}];
+   requestSnapshot:typeof c.requestSnapshot==='string'?c.requestSnapshot:null,createdAt:typeof c.createdAt==='string'?c.createdAt:null,
+   ...(c.provenance&&typeof c.provenance==='object'&&!Array.isArray(c.provenance)?{provenance:structuredClone(c.provenance)}:{})}];
  }catch{return [];}});
 }
 function owner(project,id){if(!project.components?.some(c=>c.id===id&&c.type==='gfl'))throw Error('所选 GFL 不存在。');}
-export function saveManualCandidate(project,ibrId,{id,name,gains,input,request={},createdAt=new Date().toISOString()}){
+export function saveManualCandidate(project,ibrId,{id,name,gains,input,request={},snapshot,experiments,policy,createdAt=new Date().toISOString()}){
  owner(project,ibrId);if(!safeId(id))throw Error('手动方案 ID 无效。');
  const mode=modeOf(input);if(!modes.includes(mode))throw Error('控制模式无效。');
  if(Object.hasOwn(project.extensions?.gflPi?.[ibrId]?.manualCandidates??{},id))throw Error('方案已存在；请另存为新方案。');
  const record={id,name:nameOf(name),source:'manual',mode,gains:copyGains(gains),factSnapshot:tuningSnapshot(input),requestSnapshot:tuningSnapshot(request),createdAt};
+ if(snapshot)record.provenance=structuredClone({snapshot,experiments:experiments??null,request,policy:policy??null});
  const next=structuredClone(project);next.extensions??={};next.extensions.gflPi??={};const dest=next.extensions.gflPi[ibrId]??={};
  dest.manualCandidates={...(dest.manualCandidates??{}),[id]:record};return next;
 }

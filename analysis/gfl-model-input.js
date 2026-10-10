@@ -45,7 +45,7 @@ export function readGflModelInput(project,ibrId,settings={}){
 }
 export function validateTuningRequest(raw={}){
  const request={mode:'automatic',focus:'balanced',minMargin:60,preferredMargin:60,separationRatio:5,tolerance:.05,allowReduction:false,
-  fi:null,fp:null,minimumFi:null,minimumFp:null,maxOvershootPercent:null,maxSettlingSeconds:null,...raw},errors=[];
+  fi:null,fp:null,minimumFi:null,minimumFp:null,maxOvershootPercent:null,maxSettlingSeconds:null,maxSteadyStateErrorPercent:null,currentTargets:null,crossAxisLimits:null,...raw},errors=[];
  const bad=(field,message)=>errors.push({field,message});
  if(!['automatic','target'].includes(request.mode))bad('mode','选择自动推荐或指定交越。');
  if(!['balanced','tracking'].includes(request.focus))bad('focus','本版未定义扰动注入模型，仅支持均衡或参考跟踪。');
@@ -58,6 +58,13 @@ export function validateTuningRequest(raw={}){
   if(!Number.isFinite(request[k])||request[k]<=0)bad(k,'指定目标须为正 Hz。');
   if(request[min]!==null&&(!Number.isFinite(request[min])||request[min]<=0||request[min]>request[k]))bad(min,'最低接受频率须大于 0 且不超过目标。');
  }
- for(const k of ['maxOvershootPercent','maxSettlingSeconds'])if(request[k]!==null&&(!Number.isFinite(request[k])||request[k]<0||(k==='maxSettlingSeconds'&&request[k]===0)))bad(k,'性能限制应为空或有效非负数；稳定时间须大于 0。');
+ for(const k of ['maxOvershootPercent','maxSettlingSeconds','maxSteadyStateErrorPercent'])if(request[k]!==null&&(!Number.isFinite(request[k])||request[k]<0||(k==='maxSettlingSeconds'&&request[k]===0)))bad(k,'性能限制应为空或有效非负数；稳定时间须大于 0。');
+ for(const [group,fields]of [['currentTargets',['maxOvershootPercent','maxSettlingSeconds','maxSteadyStateErrorPercent']],['crossAxisLimits',['outerPeakAbsPu','outerResidualAbsPu','currentPeakAbsPu','currentResidualAbsPu']]]){
+  const value=request[group];if(value===null)continue;
+  if(!value||typeof value!=='object'||Array.isArray(value)){bad(group,'范围性能限制须为对象或 null。');continue;}
+  for(const key of Object.keys(value))if(!fields.includes(key))bad(group+'.'+key,'未知范围性能限制。');
+  request[group]=Object.fromEntries(fields.map(key=>[key,value[key]===undefined?null:value[key]]));
+  for(const key of fields){const limit=request[group][key];if(limit!==null&&(!Number.isFinite(limit)||limit<0||(key==='maxSettlingSeconds'&&limit===0)))bad(group+'.'+key,'性能限制应为空或有效非负数；稳定时间须大于 0。');}
+ }
  return {valid:errors.length===0,errors,request};
 }

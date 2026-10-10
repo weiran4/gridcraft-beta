@@ -51,3 +51,59 @@ test('nonzero delay uses explicitly labelled first-order Pade states, Ts alone i
  const {gflDqModel}=await load();const a=gflDqModel(input,gains,{}),b=gflDqModel({...input,fs:input.fs/2},gains,{});
  assert.deepEqual(a.A,b.A);const d=gflDqModel({...input,delaySamples:1},gains,{});assert.equal(d.delayModel,'first-order-pade');assert.equal(d.names.length-a.names.length,2);
 });
+
+// Finite primitives alone cannot certify derived physical coefficients.
+for(const [label,patch]of [
+ ['explicit delay overflow',{fs:1e-305,delaySamples:1e10}],
+ ['control period overflow',{fs:Number.MIN_VALUE}],
+ ['positive delay underflow',{fs:1e308,delaySamples:Number.MIN_VALUE}],
+ ['modulation overflow',{dcVoltage:1e-310}],
+ ['dynamic DC energy denominator overflow',{dcVoltage:1e200}],
+ ['capacitor reactance intermediate overflow',{gridCapacitanceF:Number.MAX_VALUE}],
+ ['operating-point discriminant overflow',{gridVoltagePu:Number.MAX_VALUE}]
+])test(`dq source rejects ${label} before returning a model`,async()=>{
+ const {gflDqModel}=await load(),{GflAnalysisError}=await import('../analysis/gfl-analysis-contract.js'),{mainlineFixture}=await import('./fixtures/gfl-mainline.js');
+ const f=mainlineFixture();
+ assert.throws(()=>gflDqModel({...f.input,...patch},f.gains,{pllEnabled:false,dcModel:label.startsWith('dynamic DC')?'capacitor':'rigid'}),error=>error instanceof GflAnalysisError&&error.code==='numericalFailure');
+});
+
+test('derived PLL coefficients remain finite even in fixed-angle metadata',async()=>{
+ const {pllParameters,gflDqModel}=await load(),{GflAnalysisError}=await import('../analysis/gfl-analysis-contract.js'),{mainlineFixture}=await import('./fixtures/gfl-mainline.js'),f=mainlineFixture();
+ const raw={pllEnabled:false,damping:Number.MAX_VALUE},typed=error=>error instanceof GflAnalysisError&&error.code==='numericalFailure';
+ assert.throws(()=>pllParameters(raw),typed);assert.throws(()=>gflDqModel(f.input,f.gains,raw),typed);
+});
+
+for(const [label,config]of [
+ ['positive current Ki',{gains:{d:{ki:Number.MIN_VALUE}}}],
+ ['positive PLL integral coefficient',{settings:{sync:{fnHz:1e-162}}}]
+])test(`${label} cannot silently become an all-zero derivative row`,async()=>{
+ const {gflDqModel}=await load(),{GflAnalysisError}=await import('../analysis/gfl-analysis-contract.js'),{mainlineFixture}=await import('./fixtures/gfl-mainline.js'),f=mainlineFixture(config);
+ assert.throws(()=>gflDqModel(f.input,f.gains,{frequencyHz:f.settings.sync.fnHz}),error=>error instanceof GflAnalysisError&&error.code==='numericalFailure');
+});
+
+test('positive PLL frequency cannot underflow its derived integral gain to zero',async()=>{
+ const {pllParameters}=await load(),{GflAnalysisError}=await import('../analysis/gfl-analysis-contract.js');
+ assert.throws(()=>pllParameters({frequencyHz:Number.MIN_VALUE,pllEnabled:false}),error=>error instanceof GflAnalysisError&&error.code==='numericalFailure');
+});
+
+test('lossless fixed-angle filter-bypassed zero-gain model preserves physical zero rows and marginal poles',async()=>{
+ const {gflDqModel}=await load(),{classifyDqPoles}=await import('../analysis/gfl-dq-analysis.js'),{mainlineFixture}=await import('./fixtures/gfl-mainline.js');
+ const f=mainlineFixture({input:{R:0,filterCurrentMs:0,filterVoltageMs:0,filterPqMs:0},
+  gains:Object.fromEntries(['d','q','P','Q'].map(k=>[k,{kp:0,ki:0}])),settings:{syncMode:'fixed-angle'}});
+ const m=gflDqModel(f.input,f.gains,{pllEnabled:false}),i=m.names.indexOf('il1');
+ assert.deepEqual(m.names,['il0','il1','ig0','ig1','vc0','vc1']);
+ assert.deepEqual(m.A[i],[0,0,0,0,0,0]);assert.deepEqual(m.B[i],[0,0,0,0,0]);
+ assert.ok(m.residual<1e-7);assert.ok(m.jacobianError<1e-5);
+ const stability=classifyDqPoles(m.A);assert.equal(stability.status,'marginal');assert.equal(stability.alpha,0);assert.equal(stability.poles.length,6);
+ // Complex QR may leave a tiny imaginary residue on a physical zero root.
+ assert.ok(stability.poles.some(p=>Math.hypot(p.re,p.im)<1e-6));
+});
+
+const dcRangeInput={ratedVA:1e-15,voltageLL:Math.sqrt(1e-15),activePowerW:0,reactivePowerVar:0,
+ dcVoltage:1e154,dcCapacitanceF:1,R:.001,L:.0001,gridROhm:.001,gridXOhm:.1,gridCapacitanceF:.001,gridCapResistanceOhm:.001};
+for(const dMode of ['P','Vdc'])test(`${dMode} capacitor DC rejects power-derivative quotient underflow`,async()=>{
+ const {gflDqModel}=await load(),{GflAnalysisError}=await import('../analysis/gfl-analysis-contract.js'),{mainlineFixture}=await import('./fixtures/gfl-mainline.js');
+ const f=mainlineFixture({input:{...dcRangeInput,dMode},settings:{syncMode:'fixed-angle',dcModel:'capacitor'}}),coefficient=f.input.ratedVA/(f.input.dcCapacitanceF*f.input.dcVoltage**2);
+ assert.ok(Number.isFinite(coefficient)&&coefficient>0);assert.equal(coefficient,1e-323);
+ assert.throws(()=>gflDqModel(f.input,f.gains,{pllEnabled:false,dcModel:'capacitor'}),error=>error instanceof GflAnalysisError&&error.code==='numericalFailure');
+});

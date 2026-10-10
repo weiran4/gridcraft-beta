@@ -1,10 +1,21 @@
 import {gflDqModel,dqModelVersion} from './gfl-dq-model.js';
 import {eigenvalues} from './eigenvalues.js';
+import {GflAnalysisError,gflNumericalPolicy} from './gfl-analysis-contract.js';
+const poleTolerance=gflNumericalPolicy().model.poleRealPartTolerance;
 import {frequencyMatrix} from './port-response.js';
 const labels={d:'Δy₁ / Δr₁',q:'Δy₁ / Δr₂（交叉）',P:'Δy₂ / Δr₁（交叉）',Q:'Δy₂ / Δr₂'};
+/** Classify every physical pole without cancellation/filtering. Numerical errors
+ * have no stability status; callers distinguish them by the typed boundary.
+ * @returns {{status:'stable'|'unstable'|'marginal',alpha:number,poles:{re:number,im:number}[]}}
+ */
+export function classifyDqPoles(A){
+ let poles;
+ try{poles=eigenvalues(A);}catch(error){throw new GflAnalysisError('numericalFailure',error.message);}
+ const alpha=poles[0].re,status=alpha>poleTolerance?'unstable':alpha< -poleTolerance?'stable':'marginal';
+ return {status,alpha,poles};
+}
 export function analyzeGflDq(input,gains,options={},settings={}){
- const model=gflDqModel(input,gains,options),poles=eigenvalues(model.A),alpha=poles[0].re;
- const poleStatus=alpha>1e-6?'unstable':alpha< -1e-6?'stable':'marginal';
+ const model=gflDqModel(input,gains,options),classification=classifyDqPoles(model.A),{poles,alpha}=classification,poleStatus=classification.status;
  const port={A:model.A,B:model.B.map(row=>row.slice(0,2)),C:model.C.slice(0,2),D:model.D.slice(0,2).map(row=>row.slice(0,2))};
  const switching=input.switchingFrequencyHz,upper=Math.min(input.fs/10,Number.isFinite(switching)&&switching>0?switching/10:Infinity);
  const result={status:'ok',poleStatus,alpha,poles,order:model.names.length,residual:model.residual,jacobianError:model.jacobianError,

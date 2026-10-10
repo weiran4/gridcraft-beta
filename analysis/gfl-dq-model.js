@@ -5,59 +5,103 @@
  * See docs/validation/gfl-dq-pll-model.md for equations, references and limits.
  */
 import {validateGains} from './gfl-frequency.js';
+import {GflAnalysisError,gflNumericalPolicy} from './gfl-analysis-contract.js';
+const numericalPolicy=gflNumericalPolicy().model;
+const fail=(code,message)=>{throw new GflAnalysisError(code,message);};
 export const dqModelVersion='gfl-dq-srf-pll-v1';
 export const dqDefaults={enabled:false,pllEnabled:true,frequencyHz:20,damping:Math.SQRT1_2,pllFilterMs:0,dcModel:'auto',decouplingFrequency:'pll'};
-const finite=Number.isFinite,positive=(v,name)=>{if(!finite(v)||v<=0)throw Error(name+' 必须为正的有限数。');};
-const nonnegative=(v,name)=>{if(!finite(v)||v<0)throw Error(name+' 必须为非负有限数。');};
+const finite=Number.isFinite,positive=(v,name)=>{if(!finite(v)||v<=0)fail('invalidInput',name+' 必须为正的有限数。');};
+const nonnegative=(v,name)=>{if(!finite(v)||v<0)fail('invalidInput',name+' 必须为非负有限数。');};
+// Finite primitives can still overflow/underflow in physical conversions. Reject
+// these at the source, before they create missing or zero derivative dynamics.
+const finiteDerived=values=>{
+ for(const [name,value]of Object.entries(values))if((Array.isArray(value)?value:[value]).some(v=>!finite(v)))
+  fail('numericalFailure',name+' 派生值超出可表示数值范围。');
+};
+const positiveDerived=(value,name)=>{
+ if(!finite(value)||value<=0)fail('numericalFailure',name+' 派生尺度超出正的可表示数值范围。');
+};
+// Check the actual positive-gain multiplication, not the shape of a Jacobian
+// row: exact physical feedforward/decoupling cancellation may yield zero rows.
+const integralDerivative=(gain,error,label)=>{
+ const value=gain*error;
+ if(!finite(value)||(gain!==0&&error!==0&&value===0))
+  fail('numericalFailure',label+' 积分导数乘积超出可表示数值范围。');
+ return value;
+};
 const dot=(a,b)=>a[0]*b[0]+a[1]*b[1];
 const rotate=(v,angle)=>[Math.cos(angle)*v[0]+Math.sin(angle)*v[1],-Math.sin(angle)*v[0]+Math.cos(angle)*v[1]];
 export function pllParameters(raw={}){
  const p={...dqDefaults,...raw};positive(p.frequencyHz,'PLL 特征频率 fn');positive(p.damping,'PLL 阻尼系数');nonnegative(p.pllFilterMs,'PLL 测量滤波');
- if(typeof p.pllEnabled!=='boolean')throw Error('PLL 开关必须为布尔值。');
- if(!['auto','rigid','capacitor'].includes(p.dcModel))throw Error('DC 模型必须为自动、刚性电压或恒功率/电容。');
- if(!['pll','nominal'].includes(p.decouplingFrequency))throw Error('解耦频率必须为 PLL 估计或额定频率。');
- const omega=2*Math.PI*p.frequencyHz;
- return {...p,kp:2*p.damping*omega,ki:omega*omega,omega};
+ if(typeof p.pllEnabled!=='boolean')fail('invalidInput','PLL 开关必须为布尔值。');
+ if(!['auto','rigid','capacitor'].includes(p.dcModel))fail('invalidInput','DC 模型必须为自动、刚性电压或恒功率/电容。');
+ if(!['pll','nominal'].includes(p.decouplingFrequency))fail('invalidInput','解耦频率必须为 PLL 估计或额定频率。');
+ const omega=2*Math.PI*p.frequencyHz,kp=2*p.damping*omega,ki=omega*omega;
+ positiveDerived(omega,'PLL 角频率');positiveDerived(kp,'PLL 比例系数');positiveDerived(ki,'PLL 积分系数');
+ return {...p,kp,ki,omega};
 }
 // q voltage is normalized by PCC magnitude BEFORE the optional PLL LPF.
-export const srfPll=(normalizedQ,integral,p)=>({delta:p.kp*normalizedQ+integral,integral:p.ki*normalizedQ});
+export const srfPll=(normalizedQ,integral,p)=>({delta:p.kp*normalizedQ+integral,integral:integralDerivative(p.ki,normalizedQ,'PLL')});
 export function gflDqOperatingPoint(p){
  const Z=p.voltageLL**2/p.ratedVA,w=2*Math.PI*p.frequencyHz,r=p.gridROhm/Z,x=p.gridXOhm/Z;
  const P=p.activePowerW/p.ratedVA,Q=p.reactivePowerVar/p.ratedVA,E=p.gridVoltagePu??1;
  positive(E,'电网电源标幺电压');
+ positiveDerived(Z,'Zb');positiveDerived(w,'额定角频率');finiteDerived({r,x,P,Q});
  const b=E*E+2*(r*P+x*Q),disc=b*b-4*(r*r+x*x)*(P*P+Q*Q);
- if(!finite(disc)||disc<=1e-12||b<=0)throw Error('指定 PCC P/Q 无可用高电压工作点，或位于电压崩溃边界。');
- const V=Math.sqrt((b+Math.sqrt(disc))/2),ig=[P/V,-Q/V],rc=p.gridCapResistanceOhm/Z,Xc=1/(w*p.gridCapacitanceF*Z);
- const ic=[V*rc/(rc*rc+Xc*Xc),V*Xc/(rc*rc+Xc*Xc)],il=ig.map((v,k)=>v+ic[k]);
+ finiteDerived({b,disc});
+ if(disc<=1e-12||b<=0)fail('operatingPointFailure','指定 PCC P/Q 无可用高电压工作点，或位于电压崩溃边界。');
+ const V=Math.sqrt((b+Math.sqrt(disc))/2),ig=[P/V,-Q/V],rc=p.gridCapResistanceOhm/Z,capacitorScale=w*p.gridCapacitanceF*Z;
+ positiveDerived(capacitorScale,'电容导纳');
+ const Xc=1/capacitorScale,shuntDenominator=rc*rc+Xc*Xc;
+ positiveDerived(Xc,'电容电抗');positiveDerived(shuntDenominator,'Rc–C 支路分母');
+ const ic=[V*rc/shuntDenominator,V*Xc/shuntDenominator],il=ig.map((v,k)=>v+ic[k]);
  const vc=[V-rc*ic[0],-rc*ic[1]],eg=[V-r*ig[0]+x*ig[1],-r*ig[1]-x*ig[0]];
  const rf=p.R/Z,lf=p.L/Z,u=[V+rf*il[0]-w*lf*il[1],rf*il[1]+w*lf*il[0]];
- return {Z,w,P,Q,E,V,il,ig,ic,vc,eg,u,bridgePower:dot(u,il),losses:rf*dot(il,il)+rc*dot(ic,ic),
+ const op={Z,w,P,Q,E,V,il,ig,ic,vc,eg,u,bridgePower:dot(u,il),losses:rf*dot(il,il)+rc*dot(ic,ic),
   gridVoltageLL:V*p.voltageLL,bridgeCurrentPu:Math.hypot(...il),modulation:2*Math.sqrt(2/3)*p.voltageLL*Math.hypot(...u)/p.dcVoltage};
+ finiteDerived(op);return op;
 }
-export function gflDqModel(input,gains,raw={}){
- const p={...input},pll=pllParameters(raw);validateGains(gains);
- if(p.gridError)throw Error(p.gridError);
- if(!p.considerScr)throw Error('dq 电网联立分析需要启用 SCR；不会把未知电网替换成理想电网。');
+export function gflDqModel(input,gains,raw={}, {experimentId='outer-reference-closed'}={}){
+ if(!['outer-reference-closed','current-reference-frozen-outer'].includes(experimentId))fail('unsupported','未支持的 dq 实验实现：'+experimentId);
+ const frozenOuter=experimentId==='current-reference-frozen-outer';
+ const p={...input},pll=pllParameters(raw);
+ try{validateGains(gains);}catch(error){fail('invalidInput',error.message);}
+ if(p.gridError)fail('unsupported',p.gridError);
+ if(!p.considerScr)fail('unsupported','dq 电网联立分析需要启用 SCR；不会把未知电网替换成理想电网。');
  for(const k of ['ratedVA','voltageLL','frequencyHz','L','dcVoltage','fs'])positive(p[k],k);
- if(pll.pllEnabled&&pll.frequencyHz>=p.fs/2)throw Error('PLL 特征频率须低于控制 Nyquist 频率；请核对单位。');
+ if(pll.pllEnabled&&pll.frequencyHz>=p.fs/2)fail('invalidInput','PLL 特征频率须低于控制 Nyquist 频率；请核对单位。');
  for(const k of ['R','gridROhm','gridCapResistanceOhm','filterCurrentMs','filterVoltageMs','filterPqMs','filterVdcMs','delaySamples'])nonnegative(p[k],k);
+ if(p.gridXOhm===0)fail('unsupported','dq 模型的电网电感（以正电抗表示）必须为正。');
+ if(p.gridCapacitanceF===0)fail('unsupported','LCL/RC 支路电容必须为正；无电容拓扑未支持。');
  positive(p.gridXOhm,'dq 模型的电网电感（以正电抗表示）');positive(p.gridCapacitanceF,'LCL/RC 支路电容');
- for(const k of ['activePowerW','reactivePowerVar'])if(!finite(p[k]))throw Error(k+' 尚未配置。');
- if(!['P','Vdc'].includes(p.dMode)||!['Q','Vac'].includes(p.qMode))throw Error('未支持的 GFL 外环模式。');
+ for(const k of ['activePowerW','reactivePowerVar'])if(!finite(p[k]))fail('invalidInput',k+' 尚未配置。');
+ if(!['P','Vdc'].includes(p.dMode)||!['Q','Vac'].includes(p.qMode))fail('unsupported','未支持的 GFL 外环模式。');
  const dcDynamic=pll.dcModel==='capacitor'||(pll.dcModel==='auto'&&p.dMode==='Vdc');
- if(p.dMode==='Vdc'&&!dcDynamic)throw Error('刚性 DC 电源钳位电压，不能同时评价 Vdc 电容能量控制；选择电容模型。');
- if(dcDynamic)positive(p.dcCapacitanceF,'独立 DC 分析电容');
+ if(p.dMode==='Vdc'&&!dcDynamic)fail('unsupported','刚性 DC 电源钳位电压，不能同时评价 Vdc 电容能量控制；选择电容模型。');
+ if(dcDynamic){
+  positive(p.dcCapacitanceF,'独立 DC 分析电容');
+  const dcEnergyScale=p.dcCapacitanceF*p.dcVoltage**2;
+  positiveDerived(dcEnergyScale,'DC 电容能量');positiveDerived(p.ratedVA/dcEnergyScale,'DC 功率–电压动态系数');
+ }
+ const controlStepSeconds=1/p.fs,Td=p.delaySamples/p.fs;
+ positiveDerived(controlStepSeconds,'控制周期');finiteDerived({Td});
+ if(p.delaySamples>0&&Td===0)fail('numericalFailure','正的显式延时发生数值下溢，不能视为零延时。');
+ if(Td>0)positiveDerived(2/Td,'Padé 状态速率');
+ for(const [name,value]of Object.entries({filterCurrentMs:p.filterCurrentMs,filterVoltageMs:p.filterVoltageMs,filterPqMs:p.filterPqMs,filterVdcMs:p.filterVdcMs,pllFilterMs:pll.pllFilterMs}))
+  if(value>0)positiveDerived(value/1000,name+' 时间常数');
  const op=gflDqOperatingPoint(p),{Z,w}=op,l=p.L/Z,lg=p.gridXOhm/(w*Z),cap=p.gridCapacitanceF*Z,rf=p.R/Z,rg=p.gridROhm/Z,rc=p.gridCapResistanceOhm/Z;
+ positiveDerived(l,'Lf 标幺电感');positiveDerived(lg,'Lg 标幺电感');positiveDerived(cap,'支路标幺电容');finiteDerived({rf,rg,rc});
  const names=[],x0=[],idx={};const add=(key,v)=>{idx[key]=names.length;names.push(key);x0.push(v);};
  for(const key of ['il','ig','vc'])op[key].forEach((v,k)=>add(key+k,v));
  if(p.filterCurrentMs>0)op.il.forEach((v,k)=>add('hi'+k,v));
  if(p.filterVoltageMs>0)[op.V,0].forEach((v,k)=>add('hv'+k,v));
  if(p.filterPqMs>0){if(p.dMode==='P')add('pf',op.P);if(p.qMode==='Q')add('qf',op.Q);}
  if(dcDynamic){add('dcVoltage',1);if(p.dMode==='Vdc'&&p.filterVdcMs>0)add('dcMeasured',1);}
- for(const [k,key]of [['d','xi0'],['q','xi1'],['P','outer0'],['Q','outer1']])if(gains[k].ki>0)add(key,0);
+ for(const [k,key]of [['d','xi0'],['q','xi1']])if(gains[k].ki>0)add(key,0);
+ if(!frozenOuter)for(const [k,key]of [['P','outer0'],['Q','outer1']])if(gains[k].ki>0)add(key,0);
  if(pll.pllEnabled){add('pllAngle',0);add('pllIntegral',0);if(pll.pllFilterMs>0)add('pllMeasured',0);}
- const Td=p.delaySamples/p.fs;if(Td>0)op.u.forEach((v,k)=>add('delay'+k,v));
- const inputNames=[p.dMode+' reference',p.qMode+' reference','grid phase / rad','grid amplitude / pu','DC input power / pu'];
+ if(Td>0)op.u.forEach((v,k)=>add('delay'+k,v));
+ const inputNames=[frozenOuter?'id reference (controller frame)':p.dMode+' reference',frozenOuter?'iq reference (controller frame)':p.qMode+' reference','grid phase / rad','grid amplitude / pu','DC input power / pu'];
  const outputNames=[p.dMode,p.qMode,'id (controller frame)','iq (controller frame)','PLL angle / rad','PCC voltage / pu'];
  // PI integrators are represented as incremental output states around their
  // initialized operating outputs. With Ki=0 that operating bias remains fixed.
@@ -70,13 +114,14 @@ export function gflDqModel(input,gains,raw={}){
   const normalizedQ=vg[1]/Math.max(1e-9,Math.hypot(...vg)),measured=get('pllMeasured',normalizedQ);
   const dynamics=pll.pllEnabled?srfPll(measured,get('pllIntegral'),pll):{delta:0,integral:0};
   put('pllAngle',dynamics.delta);put('pllIntegral',dynamics.integral);put('pllMeasured',(normalizedQ-measured)/(pll.pllFilterMs/1000));
-  const errors=[p.dMode==='Vdc'?1+u[0]-get('dcMeasured',dc):op.P+u[0]-pf,p.qMode==='Vac'?op.V+u[1]-Math.hypot(...hv):op.Q+u[1]-qf];
-  const signs=[p.dMode==='Vdc'?-1:1,-1],ir=errors.map((e,k)=>op.il[k]+signs[k]*(gains[k?'Q':'P'].kp*e+get('outer'+k)));
+  const errors=frozenOuter?null:[p.dMode==='Vdc'?1+u[0]-get('dcMeasured',dc):op.P+u[0]-pf,p.qMode==='Vac'?op.V+u[1]-Math.hypot(...hv):op.Q+u[1]-qf];
+  const signs=[p.dMode==='Vdc'?-1:1,-1],ir=frozenOuter?op.il.map((v,k)=>v+u[k]):errors.map((e,k)=>op.il[k]+signs[k]*(gains[k?'Q':'P'].kp*e+get('outer'+k)));
   const omega=pll.decouplingFrequency==='pll'?w+dynamics.delta:w,uc=[];
   for(let k=0;k<2;k++){
    const error=ir[k]-hi[k],gain=gains[k?'q':'d'];
    uc[k]=hv[k]+(k===0?-1:1)*omega*l*hi[1-k]+bias[k]+gain.kp*error+get('xi'+k);
-   put('xi'+k,gain.ki*error);put('outer'+k,gains[k?'Q':'P'].ki*errors[k]);
+   put('xi'+k,integralDerivative(gain.ki,error,'电流 PI'));
+   if(!frozenOuter)put('outer'+k,integralDerivative(gains[k?'Q':'P'].ki,errors[k],'外环 PI'));
    put('hi'+k,(ic[k]-hi[k])/(p.filterCurrentMs/1000));put('hv'+k,(vg[k]-hv[k])/(p.filterVoltageMs/1000));
   }
   const command=rotate(uc,-delta),applied=command.map((v,k)=>Td>0?2*get('delay'+k)-v:v),eg=rotate(op.eg,-u[2]).map(v=>v*(1+u[3]));
@@ -89,11 +134,20 @@ export function gflDqModel(input,gains,raw={}){
   }
   put('pf',(P-pf)/(p.filterPqMs/1000));put('qf',(Q-qf)/(p.filterPqMs/1000));
   put('dcMeasured',(dc-get('dcMeasured',dc))/(p.filterVdcMs/1000));
-  if(dcDynamic){if(!(dc>0))throw Error('DC 电压离开正电压小信号范围。');put('dcVoltage',p.ratedVA*(op.bridgePower+u[4]-dot(applied,il))/(p.dcCapacitanceF*p.dcVoltage**2*dc));}
+  if(dcDynamic){
+   if(!(dc>0))fail('numericalFailure','DC 电压离开正电压小信号范围。');
+   const imbalance=op.bridgePower+u[4]-dot(applied,il),derivative=p.ratedVA*imbalance/(p.dcCapacitanceF*p.dcVoltage**2*dc);
+   // Exact power balance permits a zero derivative. A nonzero imbalance lost
+   // in this source product/quotient is representability failure, not physics.
+   if(!finite(derivative)||(imbalance!==0&&derivative===0))
+    fail('numericalFailure','DC 功率–电压导数商超出可表示数值范围。');
+   put('dcVoltage',derivative);
+  }
   return {dx,y:[p.dMode==='Vdc'?dc:P,p.qMode==='Vac'?Math.hypot(...v):Q,ic[0],ic[1],delta,Math.hypot(...v)]};
  };
  const ref0=Array(inputNames.length).fill(0),eq=evaluate(x0,ref0),residual=Math.max(...eq.dx.map(Math.abs));
- if(!finite(residual)||residual>1e-7)throw Error('工作点残差超限，不能可靠线性化：'+residual);
+ if(!finite(residual))fail('numericalFailure','工作点残差非有限数，不能可靠线性化：'+residual);
+ if(residual>numericalPolicy.operatingPointResidualMax)fail('operatingPointFailure','工作点残差超限，不能可靠线性化：'+residual);
  function jacobian(factor){
   const n=names.length,m=inputNames.length,o=outputNames.length,A=Array.from({length:n},()=>Array(n)),B=Array.from({length:n},()=>Array(m)),C=Array.from({length:o},()=>Array(n)),D=Array.from({length:o},()=>Array(m));
   for(let j=0;j<n+m;j++){
@@ -105,17 +159,17 @@ export function gflDqModel(input,gains,raw={}){
   }
   return {A,B,C,D};
  }
- const coarse=jacobian(2e-6),fine=jacobian(1e-6);
+ const coarse=jacobian(numericalPolicy.jacobian.coarseStep),fine=jacobian(numericalPolicy.jacobian.fineStep);
  let jacobianError=0;
  for(const key of ['A','B','C','D'])for(let i=0;i<fine[key].length;i++){
   const norm=Math.max(1,...fine[key][i].map(Math.abs));
   for(let j=0;j<fine[key][i].length;j++){
-   if(!finite(fine[key][i][j]))throw Error('Jacobian 非有限数，未给出结论。');
+   if(!finite(fine[key][i][j])||!finite(coarse[key][i][j]))fail('numericalFailure','Jacobian 非有限数，未给出结论。');
    jacobianError=Math.max(jacobianError,Math.abs(fine[key][i][j]-coarse[key][i][j])/norm);
   }
  }
- if(jacobianError>1e-5)throw Error('Jacobian 步长复核不收敛，未给出结论。');
+ if(jacobianError>numericalPolicy.jacobian.maxNormalizedDifference)fail('numericalFailure','Jacobian 步长复核不收敛，未给出结论。');
  return {...fine,names,x0,inputNames,outputNames,y0:eq.y,op,residual,jacobianError,evaluate,pll,dcDynamic,
-  version:dqModelVersion,delayModel:Td>0?'first-order-pade':'none',delaySeconds:Td,controlStepSeconds:1/p.fs,
+  version:dqModelVersion,delayModel:Td>0?'first-order-pade':'none',delaySeconds:Td,controlStepSeconds,
   dcAssumption:dcDynamic?'constant-input-power-capacitor; ideal DC-voltage-normalized actuator':'rigid-dc; voltage-command actuator'};
 }

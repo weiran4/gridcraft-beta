@@ -1,7 +1,10 @@
 # GFL SRF-PLL / dq 联立工程参考模型 v1
 
-This change adds an **opt-in, model-scoped coupled check**, not an IEEE-certified
-universal converter. The existing GFL scalar tuner/step views remain a baseline.
+The explicit `gfl-dq-reference-v1` selection uses this engineering reference as
+its **PLL/dq mainline** for current PI, manual trials, scalar-seeded candidates,
+response metrics, ranking and application checks. An absent `modelId` remains
+`legacy-scalar`, with its existing optional coupled side-check and unchanged PI.
+This is not an IEEE-certified universal converter.
 GFM's new four-step view uses **its own existing** current/voltage scalar model;
 GFM synchronization is not replaced by a GFL PLL.
 
@@ -145,26 +148,49 @@ No individual phase margin is assigned to these closed-loop channels.
 
 ## Integration policy
 
-Old projects load with this extra check disabled and their eight gains untouched.
-Enabling saves only per-inverter `dqAnalysis` options. Automatic candidate construction and performance ranking remain scalar. When enabled,
-the assembled candidate pool is screened with the existing coupled dq model before
-Pareto selection and final truncation. The coupled solve budget is 64 by default,
-within the existing time/evaluation budget; partial searches are not applicable.
-Unsupported topology or nonzero delay stops this enabled search before expensive
-scalar work. This is dq-constrained scalar search, not MIMO optimization or a
-robustness guarantee. Current and selected
-candidate/manual draft are evaluated with independent Worker snapshots. On applying
-an automatic/manual candidate while enabled, re-evaluate the current full model;
-reject unstable/unassessed/nonzero-Padé-only results. Saving an experimental named
-candidate remains allowed. Application still revalidates the current model; this is **not global dq-aware PI search**.
-PLL option changes invalidate search snapshots. Exports separate current dq settings,
-scoped evidence freshness and historical approval; a PLL-only edit does not stale
-the independently scoped scalar result, but does stale coupled approval.
+Mainline selection is explicit and persisted in
+`project.extensions.gflPi[ibrId].analysis`. Missing `modelId` means legacy scalar,
+including older `dqAnalysis.enabled` projects. It never implicitly opts in,
+retunes, rewrites the eight gains, or migrates an unsupported version.
 
-Read-only analysis/export/option changes never re-tune or apply PI. Baseline Bode
-and time traces remain visible with their original scope; the new matrix and poles
-live in a separate panel. GFM gets four scalar current/voltage reference-step graphs,
-while its existing Droop/VSG/Synchronverter coupled check remains separate.
+The product model version is 1 (`gfl-dq-reference-v1`). Its historical equation
+version stays `gfl-dq-srf-pll-v1`; the frozen realization is a different feedback
+connection of those equations, not a new physical/literature model. Ordered state,
+input and output descriptors carry pu/SI bases, frames, units and applicability.
+
+Two experiments use the same operating point and initialized controller biases:
+
+- `outer-reference-closed`: both outer loops closed; independently step each
+  selected P/Vdc or Q/Vac reference. Its complete pole set owns main stability.
+- `current-reference-frozen-outer`: freeze the outer-controller output increments
+  to zero, retaining the operating current-command bias. Step controller-frame id
+  and iq references separately. Remove disconnected outer integrators; retain
+  PLL/frame rotations, electrical/DC dynamics, active current integrators and
+  measurement filters. These poles are diagnostic only. Capacitor DC can drift
+  with frozen outer regulation; such cases have no verified finite settling time.
+
+Default reference steps are 0.01 pu (negative nonzero steps are supported).
+Settling is entering and remaining in the requested target ±2% amplitude band,
+never a band around measured final gain. Cross-axis channels expose absolute
+peak/residual increments, not tracking overshoot or relative target error.
+Optional current/cross-axis limits gate only when explicitly requested.
+
+The same Worker evaluator supplies plots, metrics and candidate ranking. Scalar
+analysis supplies seed gains and explicitly labelled diagnostic views; it does
+not certify mainline target performance. This is bounded scalar-seeded selection,
+not a full MIMO optimizer or automatic PLL tuning. The shared search defaults
+remain 18,000 scalar evaluations, 64 coupled evaluations and 25 seconds including
+response computation and result preparation.
+
+Edits clear stale eligibility. The application transaction rereads the latest
+project, reevaluates the candidate in a Worker, verifies scoped fingerprints, and
+consumes a one-use live ticket. Successful writes are limited to PI and associated
+evidence; undo restores PI only. PLL edits/reset remain separate. Saved/downloaded
+fingerprints and history are diagnostic evidence, never application authority.
+
+GFM's existing scalar current/voltage and synchronization mechanisms are unchanged.
+See [mainline integration evidence](gfl-mainline-integration.md) for actual test
+results, browser coverage and publication-verification requirements.
 
 ## Verification commands and what they mean
 
@@ -175,11 +201,17 @@ while its existing Droop/VSG/Synchronverter coupled check remains separate.
     python scripts/validate-gfl-dq.py
     SITE_DIR=dist node scripts/browser-pll-and-gfm-step.mjs
 
-The new independent Python RHS reimplements the stated nonlinear equations,
-uses a five-point Jacobian, SciPy eigenvalues and complex matrix solve, and compares
-a tiny nonlinear perturbation over 2ms with exp(A t). The test set includes all four
+The independent Python verifier reconstructs the high-voltage equilibrium from
+physical inputs using a voltage-squared polynomial and complex KVL/admittance. It
+checks KVL/KCL/DC power balance, independently initializes all states and PLL
+coefficients, and reimplements both nonlinear feedback connections. It uses a
+five-point Jacobian, SciPy eigenvalues with one-to-one matching of every pole
+(not only the largest real part), complex frequency solves, and tiny state and
+reference perturbations over 2 ms against SciPy expm/DOP853. The test set includes all four
 outer combinations, PLL on/off, independent PLL filtering, Padé delay, bypassed
 sensors, changed P/Q/SCR, rigid DC and capacitor mode. This verifies equations and
 numerical implementation, not hardware fidelity. The existing GFL/GFM numerical
-and browser regressions remain mandatory. Actual run counts/results are recorded
-in the PR and artifact, not asserted in advance in this document.
+and browser regressions remain mandatory. Actual run counts/results and inherited numerical tolerances are recorded in
+`gfl-mainline-integration.md` and JSON artifacts. Browser scripts authored or
+syntax-checked but not executed are explicitly UNRUN; no screenshot or browser
+success is implied by a unit/numerical pass.

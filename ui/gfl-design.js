@@ -7,10 +7,16 @@ import {readGflModelInput,modelFacts,validateTuningRequest} from '../analysis/gf
 import {evaluateGfl} from '../analysis/gfl-linear-evaluation.js';
 import {gflLinearModels} from '../analysis/gfl-linear-model.js';
 import {linearStepMetrics} from '../analysis/gfl-step-metrics.js';
-import {createTuningState,previewCandidate,applyCandidate,restoreAppliedGains,tuningSnapshot,applicationEvidence,gflDqEvidenceExport} from '../project/gfl-tuning-state.js';
+import {createTuningState,previewCandidate,applyCandidate,restoreAppliedGains,tuningSnapshot} from '../project/gfl-tuning-state.js';
+import {buildGflAnalysisExport} from '../project/gfl-analysis-export.js';
 import {createTuningClient} from './gfl-tuning-client.js';
+import {createGflAnalysisClient} from './gfl-analysis-client.js';
+import {createGflMainlineApplicationController,readGflApplicationContext} from '../project/gfl-analysis-evidence.js';
+import {readGflAnalysisSettings,saveGflAnalysisSettings,resolveGflSnapshot} from '../project/gfl-analysis-settings.js';
+import {gflFingerprint,gflNumericalPolicy} from '../analysis/gfl-analysis-contract.js';
+import {createGflExperimentDefinitions} from '../analysis/gfl-experiments.js';
 import {mountGflTuningPanel} from './gfl-tuning-panel.js?v=dq1';
-import {tiFromKi,kiFromTi,piTimeParameters} from '../analysis/pi-time.js?v=ti1';
+import {tiFromKi,kiFromTi} from '../analysis/pi-time.js?v=ti1';
 import {outerContext,outerModels} from '../analysis/gfl-outer.js?v=scr1';
 import {operatingSummary} from './operating-summary.js?v=pq1';
 import {inverterOperatingContext,operatingPoint} from '../analysis/operating-point.js?v=pq1';
@@ -36,18 +42,21 @@ let project,id,settings,gains,manual=false,input,design,recommended,models,gainB
 let displayedSweep=null,bodeWidth=0,manualBode=null;
 function drawBode(){
  const host=$('bodePlot'),preview=$('bodePiSource')?.value==='comparison',e=manualBode?.evaluation;
- const sweep=preview?(e?{min:e.scan.min,max:e.scan.max,series:$('bodeMode').value==='open'?e.series:e.closedSeries}:null):displayedSweep;
+ const diagnostic=mainlineSelected(project)?currentScalarDiagnostic:null;
+ const sweep=preview?(e?{min:e.scan.min,max:e.scan.max,series:$('bodeMode').value==='open'?e.series:e.closedSeries}:null):(diagnostic?{min:diagnostic.scan.min,max:diagnostic.scan.max,series:$('bodeMode').value==='open'?diagnostic.series:diagnostic.closedSeries}:displayedSweep);
  host.innerHTML=bodeLoopGrid(sweep,{P:settings?.dMode??'P',Q:settings?.qMode??'Q'},{width:host.clientWidth||1200,columns:matchMedia('(max-width:900px)').matches?1:2});
- if($('bodeParameterStatus'))$('bodeParameterStatus').textContent=preview?('当前展示：'+(manualBode?.name??'手动试调')+'（未应用）。'+(e?'下方控制框图及导出仍为当前 PI。':'正在计算或尚无有效试调。')):'当前展示：当前已应用 PI。';
- const metrics=preview?e:(displayedSweep?currentEvaluation:null);
+ if($('bodeParameterStatus'))$('bodeParameterStatus').textContent=(mainlineSelected(project)?'标量诊断 · ':'')+(preview?('当前展示：'+(manualBode?.name??'手动试调')+'（未应用）。'+(e?'下方控制框图及导出仍为当前 PI。':'正在计算或尚无有效试调。')):'当前展示：当前已应用 PI。');
+ const metrics=preview?e:(diagnostic??(displayedSweep?currentEvaluation:null));
  $('bodeMetrics').innerHTML=metrics?'<table><thead><tr><th>'+(preview?'试调控制环':'当前控制环')+'</th><th>全部交越 / Hz</th><th>相位裕度 / °</th><th>模型稳定性</th></tr></thead><tbody>'+Object.entries(metrics.loops).map(([k,l])=>'<tr><td>'+esc(loopLabel(k))+'</td><td>'+(l.crossings.map(x=>fmt(x.frequency)).join(' / ')||'频段内无交越')+'</td><td>'+fmt(l.minMargin)+'</td><td>'+esc(l.stability.status)+'</td></tr>').join('')+'</tbody></table>':'';
 }
 
 function clearBode(){displayedSweep=null;drawBode();}
+let analysisSuspended=false,currentKey=null,currentStale=false,currentMessage='',analysisUiError='',currentScalarDiagnostic=null,scalarDiagnosticKey=null,selectedBode=null,comparisonDiagnosticKey=null,comparisonScalarDiagnostic=null;
 let context,currentEvaluation=null,advisorResult=null,advisorSelected=null,advisorStale=false,advisorMessage='',request=validateTuningRequest({}).request;
 const emptyGains=()=>Object.fromEntries(['d','q','P','Q'].map(k=>[k,{kp:0,ki:0}]));
 const requestFrom=stored=>({...validateTuningRequest({}).request,fi:stored.fi??500,fp:stored.fp??50,...(stored.advisor?.request??{})});
-const snapshot=(p=project)=>{const stored=p.extensions?.gflPi?.[id]??{},facts=readGflModelInput(p,id,p===project?settings:loadSettings(stored));if(facts.inputStatus!=='valid')throw Error('当前模型输入不足或无效。');return tuningSnapshot({ibrId:id,input:facts.modelInput,gains:p===project?(gains??null):(stored.gains??null),request:p===project?request:requestFrom(stored),dqSettings:readDqSettings(p,id)});};
+const mainlineSelected=p=>{const a=readGflAnalysisSettings(p,id);return a?.modelId!=='legacy-scalar'||a?.schemaVersion!==1||a?.modelVersion!==1;};
+const snapshot=(p=project)=>{if(mainlineSelected(p))return readGflApplicationContext(p,id).requestKey;const stored=p.extensions?.gflPi?.[id]??{},facts=readGflModelInput(p,id,p===project?settings:loadSettings(stored));if(facts.inputStatus!=='valid')throw Error('当前模型输入不足或无效。');return tuningSnapshot({ibrId:id,input:facts.modelInput,gains:p===project?(gains??null):(stored.gains??null),request:p===project?request:requestFrom(stored),dqSettings:readDqSettings(p,id)});};
 const client=createTuningClient({workerFactory:()=>new Worker(new URL('./gfl-tuning-worker.js',import.meta.url),{type:'module'}),onEvent:event=>{
  if(event.type==='started'){advisorMessage='正在搜索候选，现有 PI 保持不变…';advisorStale=false;}
  else if(event.type==='progress')advisorMessage='正在搜索：已检查 '+event.progress.evaluations+' 组参数…';
@@ -56,43 +65,119 @@ const client=createTuningClient({workerFactory:()=>new Worker(new URL('./gfl-tun
  else if(event.type==='stale'||event.type==='cancelled'){advisorStale=Boolean(advisorResult)||event.type==='cancelled';advisorMessage=event.message;}
  renderAdvisor();
 }});
+const currentClient=createGflAnalysisClient({workerFactory:()=>new Worker(new URL('./gfl-analysis-worker.js',import.meta.url),{type:'module'}),onEvent:event=>{
+ if(event.type==='started'){currentEvaluation=null;currentStale=false;currentMessage='正在校核当前 PI 的联立模型…';}
+ else if(event.type==='result'){if(event.requestKey!==currentKey||!valid||!mainlineSelected(project))return;currentEvaluation=event.result;currentMessage='';currentStale=false;$('gainMode').textContent='当前 PI · 完整外环 '+event.result.stability.status+'；响应 '+event.result.responseQuality+'；求解 '+event.result.solveStatus;}
+ else if(event.type==='error'){currentEvaluation=null;currentStale=true;currentMessage=event.message;}
+ else if(event.type==='stale'||event.type==='cancelled'){currentEvaluation=null;currentStale=true;currentMessage=event.message;}
+ renderAdvisor();
+}});
+const scalarDiagnosticClient=createGflAnalysisClient({workerFactory:()=>new Worker(new URL('./gfl-analysis-worker.js',import.meta.url),{type:'module'}),onEvent:event=>{
+ if(event.type==='result'&&event.requestKey===scalarDiagnosticKey){currentScalarDiagnostic=event.result.legacyEvaluation??null;drawBode();}
+ else if(event.type==='started'||event.type==='error'||event.type==='cancelled'||event.type==='stale'){currentScalarDiagnostic=null;drawBode();}
+}});
+const comparisonDiagnosticClient=createGflAnalysisClient({workerFactory:()=>new Worker(new URL('./gfl-analysis-worker.js',import.meta.url),{type:'module'}),onEvent:event=>{
+ if(event.type==='result'&&event.requestKey===comparisonDiagnosticKey&&selectedBode){comparisonScalarDiagnostic=event.result.legacyEvaluation??null;manualBode={...selectedBode,evaluation:comparisonScalarDiagnostic};drawBode();}
+ else if(['error','cancelled','stale'].includes(event.type)){comparisonScalarDiagnostic=null;manualBode=null;drawBode();}
+ else if(event.type==='started'){comparisonScalarDiagnostic=null;manualBode=selectedBode?{...selectedBode,evaluation:null}:null;drawBode();}
+}});
+function clearCurrent(reason='输入已改变，旧主线结果已清除。'){
+ currentKey=null;currentEvaluation=null;currentStale=true;currentMessage=reason;currentClient.invalidate(reason);
+ scalarDiagnosticKey=null;currentScalarDiagnostic=null;scalarDiagnosticClient.invalidate();comparisonDiagnosticKey=null;comparisonScalarDiagnostic=null;comparisonDiagnosticClient.invalidate();
+}
+function updateCurrent(){
+ if(analysisSuspended)return;
+ try{const component=getGfl(project,id),analysis=readGflAnalysisSettings(project,id),resolved=resolveGflSnapshot({...context.modelInput,switchingFrequencyHz:component.extensions?.filterDesign?.fs??null},analysis,{...context.sourceMap,switchingFrequencyHz:'component.extensions.filterDesign.fs'});
+  const payload={snapshot:resolved,gains:structuredClone(gains),request:structuredClone(request),experiments:createGflExperimentDefinitions(),policy:gflNumericalPolicy()},requestKey=gflFingerprint('request',{kind:'evaluate',payload});
+  if(currentKey!==requestKey){currentKey=requestKey;currentClient.start({kind:'evaluate',requestKey,payload});}
+  updateScalarDiagnostics();
+ }catch(error){currentEvaluation=null;currentStale=true;currentMessage=error.message;currentKey=null;currentClient.invalidate(error.message);}
+}
+function updateScalarDiagnostics(){
+ if(analysisSuspended||!mainlineSelected(project)||!valid||!gains||analysisUiError)return;
+ const payload={snapshot:{modelId:'legacy-scalar',input:context.modelInput},gains:structuredClone(gains),request:{}},requestKey=gflFingerprint('request',{kind:'evaluate',payload});
+ if(requestKey!==scalarDiagnosticKey){scalarDiagnosticKey=requestKey;scalarDiagnosticClient.start({kind:'evaluate',requestKey,payload});}
+ if($('bodePiSource')?.value==='comparison'&&selectedBode?.gains){const candidatePayload={...payload,gains:structuredClone(selectedBode.gains)},key=gflFingerprint('request',{kind:'evaluate',payload:candidatePayload});
+  if(key!==comparisonDiagnosticKey){comparisonDiagnosticKey=key;comparisonScalarDiagnostic=null;comparisonDiagnosticClient.start({kind:'evaluate',requestKey:key,payload:candidatePayload});}
+  else if(comparisonScalarDiagnostic)manualBode={...selectedBode,evaluation:comparisonScalarDiagnostic};}
+}
+function renderAnalysisControls(){
+ const a=readGflAnalysisSettings(project,id),known=a?.schemaVersion===1&&a?.modelVersion===1&&['legacy-scalar','gfl-dq-reference-v1'].includes(a?.modelId),selected=mainlineSelected(project);
+ const select=$('gflAnalysisModel');select.innerHTML='<option value="legacy-scalar">原标量双环模型（兼容已有项目）</option><option value="gfl-dq-reference-v1">PLL 与 dq 联立工程参考模型</option>'+(!known?'<option value="unsupported">未支持的模型 / 版本（原配置保留）</option>':'');select.value=known?a.modelId:'unsupported';
+ $('gflMainlineControls').hidden=!selected;$('gflScalarBodeTitle').textContent=selected?'标量诊断 · 四环 Bode（不替代联立结论）':'波特图 · 解析频率响应';
+ for(const [id,path]of [['gflSyncMode','syncMode'],['gflPllFn','sync.fnHz'],['gflPllDamping','sync.damping'],['gflPllFilter','sync.filterMs'],['gflDecoupling','sync.decouplingFrequency'],['gflDcModel','dcModel']]){
+  const el=$(id),[key,field]=path.split('.'),value=field?a?.[key]?.[field]:a?.[key];el.disabled=!known;if(document.activeElement!==el)el.value=value??'';
+ }
+ const delay=$('gflMainlineDelay');if(document.activeElement!==delay)delay.value=settings.delaySamples;delay.disabled=!known;
+ $('gflAnalysisStatus').textContent=analysisUiError||(!known?'所选模型或版本未支持；原配置与 PI 已保留。':selected?currentMessage||'主线仅分析声明的单逆变器平衡 LCL 工程参考模型；没有认证或硬件稳定性保证。':'原标量模型；可选 dq 面板只作额外校核。');
+}
+function saveAnalysisControl(el,path){
+ try{const value=el.type==='number'?el.valueAsNumber:el.value,[key,field]=path.split('.'),patch=field?{sync:{[field]:value}}:{[key]:value};
+  const next=saveGflAnalysisSettings(shared.read()??project,id,patch);analysisUiError='';el.removeAttribute('aria-invalid');application.invalidate();client.invalidate('分析模型或同步设置已改变，旧候选已过期。');receiveProject(shared.write(next));
+ }catch(error){analysisUiError=error.message;el.setAttribute('aria-invalid','true');application.invalidate();client.invalidate(error.message);clearCurrent(error.message);renderAdvisor();}
+}
+const application=createGflMainlineApplicationController({readProject:()=>shared.read()??project,writeProject:next=>shared.write(next),
+ clientFactory:({onEvent})=>createGflAnalysisClient({workerFactory:()=>new Worker(new URL('./gfl-analysis-worker.js',import.meta.url),{type:'module'}),onEvent}),
+ onEvent:event=>{
+  if(event.type==='started')advisorMessage='正在以最新工程重新校核所选 PI；当前 PI 保持不变。';
+  else if(event.type==='applied'){receiveProject(event.project);advisorMessage='候选已明确应用；仅更新 PI 与对应主线证据。';}
+  else if(event.type==='error'){advisorMessage=event.message;advisorStale=true;}
+  else if(event.type==='cancelled')advisorMessage=event.message;
+  renderAdvisor();
+ }
+});
 const advisor=mountGflTuningPanel($('gflAdvisor'),{
- getRequest:()=>request,
- onRequest:next=>{request=next;client.invalidate('整定目标已改变；现有 PI 不变。');save();renderAdvisor();},
- onAnalyze:()=>refresh(false,false),onSearch:generateCandidates,onCancel:()=>client.cancel(),
+ mainlineHost:$('gflMainlineResults'),getRequest:()=>request,
+ onRequest:next=>{request=next;analysisSuspended=false;advisor.resume();application.invalidate();client.invalidate('整定目标已改变；现有 PI 不变。');clearCurrent('整定目标已改变，旧可应用结论已清除。');save();if(valid)plot();renderAdvisor();},
+ onAnalyze:()=>refresh(false,false),onSearch:generateCandidates,onCancel:()=>{analysisSuspended=true;advisor.suspend('已取消校核；试调草稿保留，点击分析当前 PI 可继续。');application.cancel();client.cancel();currentClient.cancel();scalarDiagnosticClient.cancel();comparisonDiagnosticClient.cancel();advisorStale=true;renderAdvisor();},
  onSelect:value=>{advisorSelected=value;renderAdvisor();},onApply:applySelected,onRestore:restoreSelected,
- onDqSettings:patch=>{const latest=shared.read()??project;project=shared.write(saveDqSettings(latest,id,patch));client.invalidate('PLL/dq 设置已改变，请重新生成候选；现有 PI 不变。');renderAdvisor();},
- onManualStart:()=>{if(client.busy)client.cancel();},
- onManualComparison:value=>{manualBode=value.active?value:null;if($('bodePiSource'))$('bodePiSource').value=value.active?'comparison':'current';drawBode();},
+ onDqSettings:patch=>{application.invalidate();const latest=shared.read()??project;project=shared.write(saveDqSettings(latest,id,patch));client.invalidate('PLL/dq 设置已改变，请重新生成候选；现有 PI 不变。');renderAdvisor();},
+ onManualInvalidate:()=>application.invalidate(),
+ onManualStart:()=>{const wasSuspended=analysisSuspended;analysisSuspended=false;advisor.resume();if(wasSuspended&&valid&&mainlineSelected(project)){currentKey=null;plot();}application.invalidate();if(client.busy)client.cancel();},
+ onManualComparison:value=>{selectedBode=value.active?value:null;manualBode=value.active?{...value,evaluation:value.evaluation?.scalarDiagnostics??value.evaluation}:null;if($('bodePiSource'))$('bodePiSource').value=value.active?'comparison':'current';if(mainlineSelected(project))updateScalarDiagnostics();drawBode();},
+ onComparisonSelection:value=>{selectedBode=value;if(mainlineSelected(project))updateScalarDiagnostics();},
  onManualSave:saveNamedManual,onManualRename:renameNamedManual,onManualDelete:deleteNamedManual,onManualApply:applyNamedManual
 });
-function renderAdvisor(){if(!settings)return;if($('modelScope'))$('modelScope').textContent=gflModelScope(settings);const stored=project?.extensions?.gflPi?.[id];advisor.render({dqInput:{...context?.modelInput,switchingFrequencyHz:getGfl(project,id).extensions?.filterDesign?.fs??null},dqSettings:readDqSettings(project,id),manualCandidates:listManualCandidates(project,id,modeKey()),modelInput:context?.modelInput,currentGains:gains,request,current:currentEvaluation,result:advisorResult,selectedId:advisorSelected,busy:client.busy,message:advisorMessage,stale:advisorStale,invalid:!valid,canRestore:Boolean(stored?.advisor?.undo&&stored.advisor.undo.mode===modeKey()),diagnostics:context?.diagnostics??[],labels:{P:settings.dMode,Q:settings.qMode}});}
+function renderAdvisor(){if(!settings)return;renderAnalysisControls();if($('modelScope'))$('modelScope').textContent=gflModelScope(settings,readGflAnalysisSettings(project,id),context?.modelInput);const stored=project?.extensions?.gflPi?.[id];let coupled={},coupledError=null;
+ if(mainlineSelected(project))try{const applicationContext=readGflApplicationContext(project,id);coupled={applicationContext,resolvedSnapshot:applicationContext.snapshot,experiments:applicationContext.experiments,policy:applicationContext.policy};}catch(error){coupledError=error.message;}
+ advisor.render({...coupled,mainlineSelected:mainlineSelected(project),currentBusy:currentClient.busy,currentStale,analysisSettings:readGflAnalysisSettings(project,id),dqInput:{...context?.modelInput,switchingFrequencyHz:getGfl(project,id).extensions?.filterDesign?.fs??null},dqSettings:{...readDqSettings(project,id),...(mainlineSelected(project)?{enabled:false}:{})},manualCandidates:listManualCandidates(project,id,modeKey()),modelInput:context?.modelInput,currentGains:gains,request,current:currentEvaluation,result:advisorResult,selectedId:advisorSelected,busy:client.busy||application.busy,message:analysisUiError||coupledError||advisorMessage,stale:advisorStale,invalid:!valid||!!coupledError||!!analysisUiError,canRestore:Boolean(stored?.advisor?.undo&&stored.advisor.undo.mode===modeKey()),diagnostics:context?.diagnostics??[],labels:{P:settings.dMode,Q:settings.qMode}});}
 function generateCandidates(){
  const v=validateTuningRequest(request);if(!v.valid){advisorMessage='整定目标无效：'+v.errors.map(e=>e.message).join('；');renderAdvisor();return;}
  if(!valid){advisorMessage='请补齐有效的模型事实参数；目标设置不影响现有 PI 分析。';renderAdvisor();return;}
- advisorResult=null;advisorSelected=null;client.start({snapshotKey:snapshot(),input:context.modelInput,dqSettings:readDqSettings(project,id),request:v.request,baselineGains:gains?structuredClone(gains):null});
+ const wasSuspended=analysisSuspended;analysisSuspended=false;advisor.resume();if(wasSuspended&&mainlineSelected(project)){currentKey=null;plot();}
+ application.invalidate();advisorResult=null;advisorSelected=null;
+ try{const coupled=mainlineSelected(project)?readGflApplicationContext(project,id):null;
+  client.start({snapshotKey:snapshot(),input:context.modelInput,dqSettings:readDqSettings(project,id),request:v.request,baselineGains:gains?structuredClone(gains):null,
+   ...(coupled?{snapshot:coupled.snapshot,experiments:coupled.experiments,policy:coupled.policy}:{})});
+ }catch(error){advisorMessage=error.message;renderAdvisor();}
 }
 function applySelected(){try{
  const candidate=advisorResult?.candidates.find(c=>c.id===advisorSelected)??advisorResult?.candidates[0];if(!candidate||advisorStale||client.busy)throw Error('候选不可应用或已过期。');
+ const selectedProject=shared.read()??project;
+ if(mainlineSelected(selectedProject)){application.apply({ibrId:id,candidate,contextKey:advisorResult.snapshotKey,searchComplete:advisorResult.completionScope?.complete===true});return;}
  const latest=shared.read()??project,key=snapshot(latest);if(key!==advisorResult.snapshotKey)throw Error('工程或 PI 已改变，候选已过期。');
  const dqCheck=assertDqApplication(context.modelInput,candidate.gains,readDqSettings(latest,id));
  const stored=latest.extensions?.gflPi?.[id]??{dMode:settings.dMode,qMode:settings.qMode},state=previewCandidate(createTuningState(stored),candidate,key);
  const next=applyCandidate(latest,id,state,key);next.extensions.gflPi[id].advisor.dqVerification=dqCheck;next.extensions.gflPi[id].advisor.factSnapshot=tuningSnapshot(context.modelInput);next.extensions.gflPi[id].advisor.request=structuredClone(request);
  receiveProject(shared.write(next));advisorMessage='候选已明确应用；仅更新所选 GFL 的 PI。';renderAdvisor();
  }catch(error){advisorMessage=error.message;advisorStale=true;renderAdvisor();}}
-function restoreSelected(){try{const latest=shared.read()??project,next=restoreAppliedGains(latest,id,createTuningState(latest.extensions.gflPi[id]));receiveProject(shared.write(next));advisorMessage='已恢复应用前 PI；电气参数未回滚。';renderAdvisor();}catch(error){advisorMessage=error.message;renderAdvisor();}}
+function restoreSelected(){try{application.invalidate();const latest=shared.read()??project,next=restoreAppliedGains(latest,id,createTuningState(latest.extensions.gflPi[id]));receiveProject(shared.write(next));advisorMessage=mainlineSelected(latest)?'已恢复应用前 PI；电气参数未回滚，主线证据需重新评估。':'已恢复应用前 PI；电气参数未回滚。';renderAdvisor();}catch(error){advisorMessage=error.message;renderAdvisor();}}
 
-function manualLatestKey(p){const s=p.extensions?.gflPi?.[id]??{};return manualContextKey({modelInput:readGflModelInput(p,id,loadSettings(s)).modelInput,currentGains:s.gains??null,request:requestFrom(s)});}
+function manualLatestKey(p){if(mainlineSelected(p))return readGflApplicationContext(p,id).requestKey;const s=p.extensions?.gflPi?.[id]??{};return manualContextKey({modelInput:readGflModelInput(p,id,loadSettings(s)).modelInput,currentGains:s.gains??null,request:requestFrom(s)});}
 function saveNamedManual(value){
  const latest=shared.read()??project;
  if(value.contextKey!==manualLatestKey(latest))throw Error('模型或当前 PI 已变化，请刷新试调后再保存。');
  const candidateId='manual-'+crypto.randomUUID();
- const next=saveManualCandidate(latest,id,{id:candidateId,name:value.name,gains:value.gains,input:context.modelInput,request});
+ const coupled=mainlineSelected(latest)?readGflApplicationContext(latest,id):null;
+ const next=saveManualCandidate(latest,id,{id:candidateId,name:value.name,gains:value.gains,input:coupled?.snapshot.input??context.modelInput,request:coupled?.request??request,
+  ...(coupled?{snapshot:coupled.snapshot,experiments:coupled.experiments,policy:coupled.policy}:{})});
  project=shared.write(next);renderAdvisor();return candidateId;
 }
 function renameNamedManual(candidateId,name){project=shared.write(renameManualCandidate(shared.read()??project,id,candidateId,name));renderAdvisor();}
 function deleteNamedManual(candidateId){project=shared.write(deleteManualCandidate(shared.read()??project,id,candidateId));renderAdvisor();}
 function applyNamedManual(candidate,key){try{
+ const selectedProject=shared.read()??project;
+ if(mainlineSelected(selectedProject)){application.apply({ibrId:id,candidate,contextKey:key,searchComplete:true});return;}
  const latest=shared.read()??project;if(key!==manualLatestKey(latest))throw Error('模型、目标或当前 PI 已改变；试调校核已过期。');
  if(!candidate?.verified||!candidate?.requirementsMet)throw Error('试调参数未满足当前模型或目标约束，只能暂存比较。');
  const dqCheck=assertDqApplication(context.modelInput,candidate.gains,readDqSettings(latest,id));
@@ -115,7 +200,7 @@ function drawTables(){$('considerScr').checked=settings.considerScr===true;const
  const row=(k,label,unit,value,attr)=>'<tr><td><label for="field-'+k+'">'+label+'</label></td><td><input id="field-'+k+'" type="number" step="any" '+attr+'="'+k+'" value="'+value+'" aria-label="'+label+'"></td><td>'+unit+'</td></tr>';
  $('parameterTables').innerHTML='<table><thead><tr><th colspan="3">元件与运行参数</th></tr></thead><tbody>'+defs.map(([k,l,u,f])=>row(k,l,u,fmt((k==='frequencyHz'?project.frequencyHz:k==='dcVoltage'?dc.voltageV:k==='dcResistance'?dc.resistanceOhm:p[k])/f),'data-field')).join('')+'</tbody></table><table><thead><tr><th colspan="3">控制执行与延时</th></tr></thead><tbody>'+targets.map(([k,l,u])=>row(k,l,u,k==='fs'?fmt(1e6/settings.fs):settings[k],'data-setting')).join('')+'</tbody></table>';
  const select=(key,label,options)=>'<label>'+label+'<select data-mode="'+key+'" aria-label="'+label+'">'+options.map(([v,l])=>'<option value="'+v+'"'+(settings[key]===v?' selected':'')+'>'+l+'</option>').join('')+'</select></label>';
- $('parameterTables').insertAdjacentHTML('afterbegin','<section class="outer-settings"><h3>外环控制模式</h3>'+select('dMode','d 轴外环',[['P','有功 P'],['Vdc','直流电压 Vdc']])+select('qMode','q 轴外环',[['Q','无功 Q'],['Vac','交流电压 Vac']])+(settings.dMode==='Vdc'?select('capSource','Vdc 电容来源',[['applied','跟随已应用 DC 电容'],['custom','独立分析电容']])+(settings.capSource==='custom'?'<label>总等效 Cbus / μF<input type="number" min="0" step="any" data-setting="customCapUf" aria-label="总等效 Cbus" value="'+(settings.customCapUf??'')+'"></label>':''):'')+'<div id="outerModelSummary"></div></section>');
+ $('parameterTables').insertAdjacentHTML('afterbegin','<section class="outer-settings"><h3>外环控制模式</h3>'+select('dMode','d 轴外环',[['P','有功 P'],['Vdc','直流电压 Vdc']])+select('qMode','q 轴外环',[['Q','无功 Q'],['Vac','交流电压 Vac']])+(settings.dMode==='Vdc'||mainlineSelected(project)&&readGflAnalysisSettings(project,id).dcModel==='capacitor'?select('capSource','DC 分析电容来源',[['applied','跟随已应用 DC 电容'],['custom','独立分析电容']])+(settings.capSource==='custom'?'<label>总等效 Cbus / μF<input type="number" min="0" step="any" data-setting="customCapUf" aria-label="总等效 Cbus" value="'+(settings.customCapUf??'')+'"></label>':''):'')+'<div id="outerModelSummary"></div></section>');
  $('parameterTables').insertAdjacentHTML('beforeend','<p class="small-note">Ts 为控制模块执行周期；每个仿真步执行一次时，等于该模块仿真步长。独立执行周期应按实际值填写。此处不代表 PWM 开关周期。</p><div id="controlStepSummary" class="small-note"></div>');
  $('parameterTables').insertAdjacentHTML('beforeend','<section class="measurement-settings"><h3>测量滤波</h3><p class="small-note">一阶低通 H(s) = 1 / (1 + sT)，增益为 1。时间常数单位 ms；0 为旁路。</p><table><tbody>'+filterFields.map(([k,l])=>row(k,l+'时间常数','ms',settings[k],'data-setting')).join('')+'</tbody></table><div id="measurementSummary"></div></section>');
  $('parameterTables').insertAdjacentHTML('beforeend','<div id="operatingPointSummary"></div><div id="dcCapSummary"></div>');
@@ -146,6 +231,11 @@ function drawTables(){$('considerScr').checked=settings.considerScr===true;const
 
 }
 function renderOuter(){
+ if(mainlineSelected(project)){
+  const a=readGflAnalysisSettings(project,id);$('scrScope').textContent=settings.considerScr?(input.gridError||'已启用联立工程参考模型所需的电网 R/L 与 RC；运行 PCC P/Q、高电压支路工作点和所选同步模型共同线性化。'):'联立工程参考模型需要启用 SCR 并具有支持的单逆变器 LCL 拓扑；未启用时明确不支持，不以理想电网替代。';
+  document.querySelector('.design-title h1').textContent='GFL · '+settings.dMode+' / '+settings.qMode+' 联立主线分析';
+  $('outerModelSummary').innerHTML='<p class="small-note">参考端口 '+esc(settings.dMode)+'* / '+esc(settings.qMode)+'* 对应实际物理输出；完整外环实验保留两外环，电流实验冻结外环输出增量。DC 选择 '+esc(a.dcModel)+'；Vdc 模式必须使用有效的独立电容能量模型，恒输入功率。Vac 输出是运行点 PCC 线电压 RMS 幅值；不使用静态单轴灵敏度替代主线响应。</p>';return;
+ }
  $('scrScope').textContent=settings.considerScr?(input.gridError||('已启用 · '+input.pccName+' · SCR = '+fmt(input.scr)+'；电网 R/L 与 RC、滤波电压前馈参与标量内环。P/Q/Vac 采用送网电流通道；Vdc 保留桥侧电流功率近似。不含 PLL 和 dq 交叉耦合。')):'未启用：本地 RL 电流对象及理想电压前馈；不使用电网阻抗。Vac 需要勾选本项。';
  document.querySelector('.design-title h1').textContent='GFL · '+settings.dMode+' / '+settings.qMode+' 双环整定';
  const parts=['现有 PI 与候选搜索独立。自动推荐不要求交越目标；指定目标未达到时明确提示。候选只调整 PI，物理参数保持固定，点击应用后才写入。'];
@@ -163,10 +253,16 @@ function bases(){const b=design.base;
  const values=[['Vb',b.Vdq,'V',sqrt(frac(mn(2),mn(3)))+sub('V','LL')],['Ib',b.Idq,'A',frac(sqrt(mn(2))+sub('S','b'),sqrt(mn(3))+sub('V','LL'))],['Zb',b.Z,'Ω',frac(sup(sub('V','LL'),2),sub('S','b'))],['Lb',b.L,'H',frac(sub('Z','b'),sub('ω','b'))],['Rf,pu',design.Rpu,'pu',frac(sub('R','f'),sub('Z','b'))],['Lf,pu',design.Lpu,'pu',frac(sub('ω','b')+sub('L','f'),sub('Z','b'))]];
  $('baseTable').innerHTML='<table><thead><tr><th colspan="3">额定标幺基准 · 派生值</th></tr></thead><tbody>'+values.map(([n,v,u,f])=>'<tr><td>'+n+'<span class="base-formula">'+math(f)+'</span></td><td class="base-value">'+fmt(v)+'</td><td>'+u+'</td></tr>').join('')+'</tbody></table>';
 }
-function invalidate(error){valid=false;client.invalidate('模型输入无效，旧候选已过期。');currentEvaluation=null;for(const [k] of filterFields){const el=$('field-'+k);if(el)el.setAttribute('aria-invalid',String(!Number.isFinite(el.valueAsNumber)||el.valueAsNumber<0));}$('designError').textContent=error.message;if($('tuningSummary'))$('tuningSummary').innerHTML='';for(const n of ['bodePlot','bodeMetrics','gainSummary','baseTable','diagramHost','designWarnings','bodeLegend','paperEquations','gainMode'])$(n).innerHTML='';$('saveStatus').textContent='当前输入无效，请修正后继续';clearBode();if(settings?.qMode==='Vac'&&!settings.considerScr){const button=document.createElement('button');button.className='primary';button.textContent='启用 SCR 并计算 Vac / Bode';button.onclick=()=>{$('considerScr').checked=true;$('considerScr').onchange();};$('bodePlot').append(button);}}
+function invalidate(error){valid=false;clearCurrent(error.message);application.invalidate();client.invalidate('模型输入无效，旧候选已过期。');currentEvaluation=null;for(const [k] of filterFields){const el=$('field-'+k);if(el)el.setAttribute('aria-invalid',String(!Number.isFinite(el.valueAsNumber)||el.valueAsNumber<0));}$('designError').textContent=error.message;if($('tuningSummary'))$('tuningSummary').innerHTML='';for(const n of ['bodePlot','bodeMetrics','gainSummary','baseTable','diagramHost','designWarnings','bodeLegend','paperEquations','gainMode'])$(n).innerHTML='';$('saveStatus').textContent='当前输入无效，请修正后继续';clearBode();if(settings?.qMode==='Vac'&&!settings.considerScr){const button=document.createElement('button');button.className='primary';button.textContent='启用 SCR 并计算 Vac / Bode';button.onclick=()=>{$('considerScr').checked=true;$('considerScr').onchange();};$('bodePlot').append(button);}}
 function plot(){
  if(!gains){currentEvaluation=null;clearBode();for(const n of ['bodeMetrics','gainSummary'])$(n).innerHTML='';$('gainMode').textContent='未应用参数 · 框图中 0 为未配置值';renderAdvisor();return;}
- validateGains(gains);const full=evaluateGfl(input,gains,{includeSeries:true});const {series,closedSeries,...evaluated}=full;currentEvaluation=evaluated;
+ validateGains(gains);if(mainlineSelected(project)){
+  if(!analysisUiError)updateCurrent();displayedSweep=null;drawBode();
+  $('gainSummary').innerHTML='<p>当前 PI 原值保留；数值响应在共享 Worker 内校核。标量 Bode 仅用于诊断。</p>';
+  $('gainMode').textContent='当前 PI · '+(currentClient.busy?'主线正在校核；旧结论已清除。':currentEvaluation?'完整外环 '+currentEvaluation.stability.status+'；响应 '+currentEvaluation.responseQuality:'主线尚未完成校核。');
+  $('tuningSummary').innerHTML='<p class="small-note">标量搜索生成 PI 种子，联立参考实验提供响应、目标与排序证据。PLL 参数仅由用户显式编辑。</p>';renderAdvisor();return;
+ }const full=evaluateGfl(input,gains,{includeSeries:true});const {series,closedSeries,...evaluated}=full;
+ currentEvaluation={...evaluated,modelId:'legacy-scalar',modelFingerprint:gflFingerprint('model',{modelId:'legacy-scalar',input:context.modelInput,gains})};
  if(input.delaySamples===0){const rational=gflLinearModels(input,gains);for(const k of ['d','q','P','Q'])currentEvaluation.loops[k].step=linearStepMetrics(rational[k],{includePoints:false});}
  displayedSweep={min:full.scan.min,max:full.scan.max,series:$('bodeMode').value==='open'?series:closedSeries};drawBode();
  $('gainSummary').innerHTML='<table><thead><tr><th>当前 PI</th><th>Kp · pu/pu</th><th>Ti · s</th><th>Ts / Ti</th></tr></thead><tbody>'+Object.entries(gains).map(([k,v])=>'<tr><td>'+loopLabel(k)+'</td><td>'+fmt(v.kp)+'</td><td>'+(v.ki===0?'∞（积分关闭）':fmt(tiFromKi(v.ki)))+'</td><td>'+fmt(v.ki/settings.fs)+'</td></tr>').join('')+'</tbody></table>';
@@ -175,21 +271,24 @@ function plot(){
  renderAdvisor();drawBode();
 }
 function refresh(force=false,persist=true){try{
+ analysisSuspended=false;advisor.resume();
+ application.invalidate();clearCurrent();
  client.invalidate(advisorResult?'输入/参数已变化，候选已过期。':'当前 PI 保持原值。');
  const opCtx={...inverterOperatingContext(project,getGfl(project,id)),dcVoltage:connectedDc(project,id).parametersSI.voltageV},op=operatingPoint(opCtx);
  $('operatingPointSummary').innerHTML=operatingSummary(opCtx)+'<p class="small-note">运行点所需桥侧相电压 RMS：'+fmt(op.converterRms)+' V；调制比 m = '+fmt(op.modulation)+'。采用已应用 Lf，忽略 Rf 与电容基波电流。</p>'+(op.modulation>2/Math.sqrt(3)?'<p class="note error">运行点所需调制比超过 SVPWM 线性上限。</p>':'');
  $('dcCapSummary').innerHTML=dcCapSummary(project,getGfl(project,id));
  if(!Array.from(document.querySelectorAll('#parameterTables input')).every(e=>e.checkValidity()))throw Error('请修正模型参数表中的无效输入。');
  input=readInput();design=designGflPi({...input,fi:input.fs/20,fp:input.fs/200});models=outerModels(input);recommended=gains??emptyGains();
- renderOuter();renderFilters();bases();$('paperEquations').innerHTML=settings.considerScr?'<p>SCR 模型：Zp = Zc·Zg/(Zc+Zg)，A = [ZL + (1−D·Hv)Zp]/Zb，Li = Ci·D·Hi/A。不含 PLL 和 dq 交叉耦合。</p>':equationSet(settings);
- $('bodeLegend').innerHTML=bodeLegend({P:settings.dMode,Q:settings.qMode});$('diagramHost').innerHTML=controlDiagram(gains??emptyGains(),recommended,settings);
- $('designWarnings').innerHTML='<p class="small-note">额定点标量线性化；未计 PLL、dq / 外环耦合、饱和或限流。控制周期不等于开关周期；零显式延时不证明真实硬件无延时。</p>';
+ renderOuter();renderFilters();bases();$('paperEquations').innerHTML=mainlineSelected(project)?'<p>主线使用声明的 dq / PLL / 外环运行点 Jacobian。下列原标量公式仅为标量诊断与 PI 种子方法，不替代主线方程。</p>'+equationSet(settings):settings.considerScr?'<p>SCR 模型：Zp = Zc·Zg/(Zc+Zg)，A = [ZL + (1−D·Hv)Zp]/Zb，Li = Ci·D·Hi/A。不含 PLL 和 dq 交叉耦合。</p>':equationSet(settings);
+ $('bodeLegend').innerHTML=bodeLegend({P:settings.dMode,Q:settings.qMode});$('diagramHost').innerHTML=controlDiagram(gains??emptyGains(),recommended,{...settings,analysis:readGflAnalysisSettings(project,id)});
+ $('designWarnings').innerHTML=mainlineSelected(project)?'<p class="small-note">运行点联立工程参考模型；完整外环为主稳定性，冻结外环电流实验为诊断。无 EMT / HIL / 认证保证；显式非零延时仅为 Padé 近似，不可应用。</p>':'<p class="small-note">额定点标量线性化；未计 PLL、dq / 外环耦合、饱和或限流。控制周期不等于开关周期；零显式延时不证明真实硬件无延时。</p>';
  if(connectedDc(project,id).parametersSI.resistanceOhm!==0)$('designWarnings').innerHTML+='<p class="note warning">DC 含内阻；本页仍按刚性 DC 电压估算调制上限。</p>';
  $('designError').textContent='';valid=true;plot();if(persist)save();renderAdvisor();
  }catch(e){invalidate(e);renderAdvisor();}}
 function diagramFilterEdit(e){
  const el=e.target,key=el.dataset.filterSetting;
  if(!key||e.type!=='change')return;
+ application.invalidate();
  if(!Number.isFinite(el.valueAsNumber)||el.valueAsNumber<0){
   el.setCustomValidity('滤波时间常数必须为非负有限数，0 表示旁路。');el.setAttribute('aria-invalid','true');
   valid=false;$('designError').textContent=el.validationMessage;$('saveStatus').textContent='滤波输入无效，请修正；尚未保存';
@@ -205,10 +304,11 @@ function diagramFilterEdit(e){
 
 function gainEdit(e){
  const el=e.target,tag=el.dataset.gain||el.dataset.slider;if(!tag)return;if(e.type==='input'&&!el.dataset.slider)return;
+ application.invalidate();
  if($('diagramHost').querySelector('[data-filter-setting][aria-invalid="true"]')){$('designError').textContent='请先修正标红的滤波输入。';return;}
  try{
   if(!Array.from(document.querySelectorAll('#parameterTables input')).every(e=>e.checkValidity()))throw Error('请先修正参数表中的无效输入。');
-  readInput();client.invalidate('当前手动 PI 已改变，旧候选已过期。');gains??=emptyGains();recommended??=gains;const [loop,k]=tag.split('.');
+  readInput();application.invalidate();client.invalidate('当前手动 PI 已改变，旧候选已过期。');gains??=emptyGains();recommended??=gains;const [loop,k]=tag.split('.');
   const value=k==='ti'?kiFromTi(el.value):el.valueAsNumber;
   if(!Number.isFinite(value)||value<0)throw Error('Kp 必须为非负有限数。');
   el.removeAttribute('aria-invalid');
@@ -227,14 +327,24 @@ function gainEdit(e){
  }catch(error){valid=false;el.setAttribute('aria-invalid','true');$('designError').textContent=error.message;$('saveStatus').textContent='PI 输入无效，请修正；尚未保存';for(const n of ['bodeMetrics','gainSummary'])$(n).innerHTML='';clearBode();renderAdvisor();}
 }
 
+$('gflAnalysisModel').onchange=()=>saveAnalysisControl($('gflAnalysisModel'),'modelId');
+for(const [id,path]of [['gflSyncMode','syncMode'],['gflPllFn','sync.fnHz'],['gflPllDamping','sync.damping'],['gflPllFilter','sync.filterMs'],['gflDecoupling','sync.decouplingFrequency'],['gflDcModel','dcModel']])$(id).onchange=()=>saveAnalysisControl($(id),path);
+$('gflMainlineDelay').onchange=()=>{const el=$('gflMainlineDelay');if(!Number.isFinite(el.valueAsNumber)||el.valueAsNumber<0){analysisUiError='显式延时须为非负有限数。';el.setAttribute('aria-invalid','true');application.invalidate();client.invalidate(analysisUiError);clearCurrent(analysisUiError);renderAdvisor();return;}analysisUiError='';el.removeAttribute('aria-invalid');settings.delaySamples=el.valueAsNumber;settings.factSources.delaySamples='user';refresh(false,false);save();renderAdvisor();};
 const bodeObserver=typeof ResizeObserver!=='undefined'?new ResizeObserver(entries=>{const width=entries[0]?.contentRect.width??0;if(width>0&&Math.abs(width-bodeWidth)>.5){bodeWidth=width;drawBode();}}):null;bodeObserver?.observe($('bodePlot'));
 try{const raw=localStorage.getItem(key);if(!raw)throw Error('请先返回电路并选择 GFL 元件。');project=parseProject(raw);shared.accept(project);id=new URLSearchParams(location.search).get('ibr');const c=getGfl(project,id);$('selectedIdentity').textContent=c.name+' · '+id;const stored=project.extensions?.gflPi?.[id]||{};settings=loadSettings(stored);request=requestFrom(stored);gainBank=structuredClone(stored.gainBank||{});gains=stored.gains?structuredClone(stored.gains):null;manual=stored.manual===true;drawTables();$('paperEquations').innerHTML=equationSet();$('bodeLegend').innerHTML=bodeLegend();refresh(false,false);}catch(e){invalidate(e);}
 $('diagramHost').addEventListener('change',diagramFilterEdit);
 $('diagramHost').addEventListener('input',gainEdit);$('diagramHost').addEventListener('change',gainEdit);
 $('considerScr').onchange=()=>{settings.considerScr=$('considerScr').checked;refresh(false,false);save();};
-$('bodePiSource').onchange=()=>{if($('bodePiSource').value==='current'&&valid)plot();else drawBode();};
+$('bodePiSource').onchange=()=>{if(mainlineSelected(project))updateScalarDiagnostics();if($('bodePiSource').value==='current'&&valid)plot();else drawBode();};
 $('retune').onclick=generateCandidates;$('bodeMode').onchange=()=>{if(valid)plot();};
-$('exportPi').onclick=()=>{if(!valid||!gains)return;const data={schema:'gridcraft-gfl-pi-v8',manualCandidates:listManualCandidates(project,id,modeKey()),ibrId:id,inputs:{...context.modelInput,controlStepSeconds:1/input.fs},factSources:context.sourceMap,request,currentEvaluation,controlConvention:{currentPositive:'converter-to-grid',park:'d=cos, q=-sin; amplitude-invariant',powerPositive:'injection-to-grid',currentError:'reference-minus-filtered-measurement',currentPiVoltageSign:1,decoupling:{d:'-omega*L*iq',q:'+omega*L*id'},outerPolarity:{P:1,Q:-1,Vdc:-1,Vac:-1}},piForm:'Kp + 1/(Ti*s)',tiUnit:'s',parameters:Object.fromEntries(Object.entries(gains).map(([k,v])=>[loopLabel(k),piTimeParameters(v)])),manual,dqAnalysis:gflDqEvidenceExport(project.extensions?.gflPi?.[id],context.modelInput),autoTuning:{...(project.extensions?.gflPi?.[id]?.advisor??{}),searchStatus:advisorResult?.searchStatus??'notRun',candidateStatus:advisorResult?(advisorStale?'stale':'preview'):'notRun',applicationEvidence:applicationEvidence(project.extensions?.gflPi?.[id],context.modelInput),modelCoverage:currentEvaluation?.modelCoverage,storedGainsPreserved:true},zeroDelayStability:input.delaySamples===0?Object.fromEntries(Object.entries(currentEvaluation.loops).map(([k,l])=>[loopLabel(k),l.stability.status==='stable'])):null,outerModels:Object.fromEntries(Object.entries(models).map(([k,v])=>[loopLabel(k),{label:v.label,sign:v.sign,gain:v.gain,integrator:v.integrator,filter:v.filter}])),base:design.base,assumptions:'Perfect PLL; rated-point scalar linearization; ideal dq decoupling; selected first-order feedback filters; Vdc uses capacitor energy balance with constant DC input power, not a voltage-clamped ideal source; Vac uses static Xth/Zb sensitivity with other channel held fixed; no PLL or cross-channel dynamics; considerScr enables scalar RC/grid dynamics and filtered PCC feedforward, otherwise local RL only; continuous parallel PI; pure delay; small-signal physical-output linear steps only at zero delay; no EMT or HIL validation.'};const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='gfl-pi-'+id+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
+$('exportPi').onclick=()=>{
+ if(!project||!id)return;
+ const latest=shared.read()??project;
+ const data=buildGflAnalysisExport({project:latest,ibrId:id,evaluation:currentEvaluation,
+  search:advisorResult?{...advisorResult,candidateStatus:advisorStale?'stale':'preview',selectedId:advisorSelected}:null,exportedAt:new Date().toISOString()});
+ const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'})),a=document.createElement('a');
+ a.href=url;a.download='gfl-pi-'+id+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+};
 function receiveProject(p){
  if(!p||serializeProject(p)===serializeProject(project))return;
  project=p;shared.accept(p);
@@ -247,4 +357,5 @@ function receiveProject(p){
  }catch(e){$('parameterTables').innerHTML='';invalidate(e);}
 }
 window.addEventListener('storage',e=>{if(e.key===key)try{receiveProject(shared.read());}catch(e){invalidate(e);}});
-window.addEventListener('pageshow',()=>{try{receiveProject(shared.read());}catch(e){invalidate(e);}});
+window.addEventListener('pageshow',()=>{try{analysisSuspended=false;receiveProject(shared.read());advisor.resume();if(valid&&mainlineSelected(project)&&currentStale&&currentKey===null)plot();}catch(e){invalidate(e);}});
+window.addEventListener('pagehide',()=>{analysisSuspended=true;advisor.suspend('页面已暂停；试调草稿保留。');application.cancel();client.cancel();clearCurrent('页面已暂停；旧主线结果已清除。');});

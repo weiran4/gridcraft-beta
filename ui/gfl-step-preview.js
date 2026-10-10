@@ -23,7 +23,7 @@ export function mountStepPreview(host,{workerFactory=()=>new Worker(new URL('./g
  <details class="step-scope"><summary>曲线和指标怎样读？</summary><p>实线为当前 PI，虚线为候选；圆点标峰值，竖虚线标稳定时间。浅色带是目标 1±2%。上升时间按最终变化量的 10%→90% 计算；超调和稳定时间以各自解析最终值为基准。最终误差为 1−最终值，以单位参考增量的百分比显示。</p><p>若最终值不等于 1，另画该最终值的 ±2% 带，并保留最终误差，不把每条输出强行缩放到 1。自动视窗聚焦该格较慢响应；完整观察窗显示已计算尾部，不外推未计算的波形。</p></details>
  <p class="step-boundary">零延时、小信号线性预览；不含 PLL、完整 dq 耦合、限流、饱和或故障过程，不等同于 EMT / HIL 实测。</p>`;
  const q=id=>host.querySelector('#'+id),plots=Object.fromEntries(keys.map(k=>[k,q('stepPlot-'+k)]));
- let model=null,data=null,loading=false,error='',destroyed=false,resizeFrame=null;
+ let model=null,data=null,loading=false,error='',destroyed=false,resizeFrame=null,suspended=false;
  function status(r,label){
   if(!r)return '';
   if(r.status!=='ok')return label+'：'+(reasons[r.status]||'响应未评估')+(r.message?' '+r.message:'');
@@ -58,6 +58,7 @@ export function mountStepPreview(host,{workerFactory=()=>new Worker(new URL('./g
   else{data=null;loading=false;error=event.message||'';}draw();
  }});
  function update(){
+  if(suspended||destroyed)return;
   if(!model||model.invalid||!model.input){client.clear('输入无效或未配置；旧响应已清除。');return;}
   client.update({layout:'grid',input:model.input,currentGains:model.currentGains??null,candidateGains:model.stale?null:model.candidateGains??null});draw();
  }
@@ -73,5 +74,5 @@ export function mountStepPreview(host,{workerFactory=()=>new Worker(new URL('./g
   model=next;const labels=next.labels??{P:'P',Q:'Q'},names=next.titles??{d:'d 轴电流环',q:'q 轴电流环',P:labels.P+' 外环',Q:labels.Q+' 外环'};
   if(next.boundary)host.querySelector('.step-boundary').textContent=next.boundary;
   for(const k of keys)q('stepTitle-'+k).textContent=names[k];host.querySelectorAll('.step-comparison-name').forEach(el=>{el.textContent=next.comparisonLabel??'候选 PI';el.title=el.textContent;});update();
- },destroy(){destroyed=true;observer?.disconnect();if(resizeFrame!==null)cancelAnimationFrame(resizeFrame);client.destroy();host.replaceChildren();}};
+ },suspend(reason='已暂停标量阶跃诊断；重新分析后可继续。'){if(destroyed)return;suspended=true;client.clear(reason);},resume(){if(destroyed||!suspended)return;suspended=false;update();},destroy(){destroyed=true;observer?.disconnect();if(resizeFrame!==null)cancelAnimationFrame(resizeFrame);client.destroy();host.replaceChildren();}};
 }

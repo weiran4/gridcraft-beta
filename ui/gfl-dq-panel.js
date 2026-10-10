@@ -1,11 +1,23 @@
 import {createStepClient} from './gfl-step-client.js';
 import {bodeLoopGrid} from './bode-plot.js';
 import {escapeHtml as esc} from './symbols.js';
+import {gflAnalysisExportData} from '../project/gfl-analysis-export.js';
+import {gflNumericalPolicy} from '../analysis/gfl-analysis-contract.js';
 const fmt=x=>Number.isFinite(x)?Number(x.toPrecision(5)).toString():'—';
 const keys=['enabled','pllEnabled','frequencyHz','damping','pllFilterMs','dcModel','decouplingFrequency'];
+/** Existing optional side-check evidence remains separately scoped. The old
+ * adapter has no descriptor/u0/y0 contract; never invent those missing fields.
+ */
+export function buildGflDqPanelExport(model,data,exportedAt=new Date().toISOString()){
+ const fs=model?.input?.fs,pwm=model?.input?.switchingFrequencyHz;
+ return gflAnalysisExportData({schema:'gridcraft-dq-analysis-v1',exportedAt,scope:'legacy-scalar-dq-side-check',applicationAuthority:'none',
+  input:model?.input??null,configuration:model?.settings??null,currentGains:model?.currentGains??null,candidateGains:model?.candidateGains??null,result:data,
+  numericalPolicy:{model:gflNumericalPolicy().model},periods:{controlStepSeconds:Number.isFinite(fs)&&fs>0?1/fs:null,pwmPeriodSeconds:Number.isFinite(pwm)&&pwm>0?1/pwm:null},
+  reproduction:{status:'legacy-diagnostic-fields-only',missing:['ordered state/port descriptors and SI bases','u0','y0','mainline experiment and evaluation fingerprints']}});
+}
 export function mountGflDqPanel(host,{onSettings,onState}){
  host.className='gfl-dq-panel';
- host.innerHTML=`<div class="dq-heading"><h3>PLL / dq 小信号联立分析</h3><label><input id="dqEnabled" data-dq="enabled" type="checkbox">启用额外校核（不覆盖原 PI）</label></div>
+ host.innerHTML=`<div class="dq-heading"><h3>标量模式 · 可选 PLL / dq 额外校核</h3><label><input id="dqEnabled" data-dq="enabled" type="checkbox">启用额外校核（不覆盖原 PI）</label></div>
  <p class="dq-intro">上方四格阶跃及单环 PM 仍是原标量基线；这里把电网、RC、d/q 电流、外环和同步角一起线性化，单独判断所列模型的稳定性。</p>
  <div id="dqBody" hidden><div class="dq-options">
  <label>同步角模型<select id="dqPllEnabled" data-dq="pllEnabled"><option value="true">SRF PLL 动态</option><option value="false">固定同步角（不跟踪 PCC）</option></select></label>
@@ -20,7 +32,7 @@ export function mountGflDqPanel(host,{onSettings,onState}){
  <details id="dqFrequencyDetails"><summary>联立闭环频响：包括交叉通道</summary><div class="dq-frequency-controls"><label>显示对象<select id="dqSource"><option value="current">当前 PI</option><option value="candidate">所选候选 / 试调</option></select></label><span id="dqFrequencyNote"></span></div><div id="dqBode"></div></details>
  <div class="dq-footer"><button id="dqExport" type="button" disabled>导出工作点、A/B/C/D 与极点</button><span>导出仅含分析数据，不修改工程。</span></div>
  <details class="dq-reading"><summary>模型依据、参数含义与未覆盖内容</summary>
- <p>归一化 SRF PLL：e=vq/|v|，Δω=Kp·e+ξ，dξ/dt=Ki·e；Kp=2ζ(2πfn)，Ki=(2πfn)²。fn 是二阶环特征参数，不直接等于 0 dB 交越或 −3 dB 带宽。20 Hz/0.707 是可编辑参考初值，必须核对真实控制器。</p>
+ <p>归一化 SRF PLL：e=vq/|v|，Δω=Kp·e+ξ，dξ/dt=Ki·e；Kp=2ζ(2πfn)，Ki=(2πfn)²。fn 是二阶环特征参数，不直接等于 0 dB 交越或 −3 dB 带宽。20 Hz/0.707 是可编辑工程初值（engineering-default），不是实测参数，必须核对真实控制器。</p>
  <p>基于实际运行 PCC P/Q 求高电压支路工作点；名义电网源为 1 pu，电流方向为逆变器向电网。支持单逆变器、正 Lf/Lg/C、串联 Rc 的三相平衡 LCL 等效。保留旋转 dq 交叉项、滤波解耦残余、PLL 坐标变化及选中的两外环，使用运行点 Jacobian A/B/C/D。</p>
  <p>Vdc 模式采用独立 DC 电容＋恒输入功率、理想 DC 电压归一化的电压执行器，不是画布中理想电压源钳位。显式延时大于零时使用一阶 Padé，仅作近似分析；不会把该近似通过当成精确已验证推荐。fs、PWM 频率不自动变成额外延时；不模拟离散 PI、开关、死区、限流、饱和、负序、故障或保护。</p>
  <p>候选生成仍使用标量搜索与性能排序。启用后，候选池先经过此 dq 模型的零延时稳定性筛选，再选出展示候选；应用时再次校核。不是 MIMO 优化或稳健性保证；找不到通过的候选不代表全局不可行。闭环交叉通道没有独立的“PM=60°”解释。</p>
@@ -51,7 +63,7 @@ export function mountGflDqPanel(host,{onSettings,onState}){
   try{onSettings({[key]:value});el.removeAttribute('aria-invalid');error='';}catch(err){el.setAttribute('aria-invalid','true');error=err.message;client.clear(error);}
  });
  q('dqSource').onchange=chart;q('dqFrequencyDetails').ontoggle=chart;
- q('dqExport').onclick=()=>{if(!data||busy)return;const url=URL.createObjectURL(new Blob([JSON.stringify({schema:'gridcraft-dq-analysis-v1',input:model.input,configuration:model.settings,currentGains:model.currentGains,candidateGains:model.candidateGains,result:data},null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='gfl-dq-pll-analysis.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
+ q('dqExport').onclick=()=>{if(!data||busy)return;const url=URL.createObjectURL(new Blob([JSON.stringify(buildGflDqPanelExport(model,data),null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='gfl-dq-pll-analysis.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
  const observer=typeof ResizeObserver==='undefined'?null:new ResizeObserver(entries=>{let changed=false;for(const {target,contentRect}of entries){if(Math.abs((widths.get(target)??-1)-contentRect.width)>.5)changed=true;widths.set(target,contentRect.width);}if(changed&&frame===null)frame=requestAnimationFrame(()=>{frame=null;chart();});});observer?.observe(q('dqBode'));
  return {render(next){model=next;for(const el of host.querySelectorAll('[data-dq]')){const v=next.settings[el.dataset.dq];if(el.type==='checkbox')el.checked=v;else if(document.activeElement!==el)el.value=String(v);}
   q('dqBody').hidden=!next.settings.enabled;

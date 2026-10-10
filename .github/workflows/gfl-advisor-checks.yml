@@ -13,7 +13,7 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v4
@@ -45,6 +45,13 @@ jobs:
         run: |
           node scripts/validate-gfl-dq.mjs
           python scripts/validate-gfl-dq.py
+      - name: GFL mainline independent response checks
+        run: |
+          node scripts/validate-gfl-mainline-response.mjs
+          python tests/gfl-mainline-response-verifier.test.py
+          python scripts/validate-gfl-mainline-response.py
+      - name: Release identity and published-byte hashes
+        run: node --test tests/gfl-mainline-release.test.js
       - name: Browser checks
         if: ${{ hashFiles('scripts/browser-gfl-advisor.mjs') != '' }}
         env:
@@ -61,6 +68,10 @@ jobs:
         env:
           SITE_DIR: dist
         run: node scripts/browser-gfl-manual.mjs
+      - name: GFL reference step interactions
+        env:
+          SITE_DIR: dist
+        run: node scripts/browser-gfl-step.mjs
       - name: GFM advisor interaction checks
         env:
           SITE_DIR: dist
@@ -73,6 +84,10 @@ jobs:
         env:
           SITE_DIR: dist
         run: node scripts/browser-pll-and-gfm-step.mjs
+      - name: GFL PLL mainline integration
+        env:
+          SITE_DIR: dist
+        run: node scripts/browser-gfl-mainline.mjs
       - name: Validation artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -81,4 +96,6 @@ jobs:
           path: |
             artifacts/gfl-advisor
             artifacts/gfm-manual
+            artifacts/gfl-mainline-response
+            dist/release.json
           if-no-files-found: ignore

@@ -72,8 +72,8 @@ try{
  });
  await page.reload();await ready('gflDqPanel');await edit('#dqFrequency',50);await ready('gflDqPanel');
  const piDownload=page.waitForEvent('download');await page.locator('#exportPi').click();const piFile=await piDownload,pi=JSON.parse(readFileSync(await piFile.path(),'utf8'));
- assert.equal(pi.dqAnalysis.configuration.frequencyHz,50);assert.equal(pi.dqAnalysis.historicalVerification.configuration.frequencyHz,20);
- assert.equal(pi.dqAnalysis.evidence.status,'stale');assert.equal(pi.autoTuning.applicationEvidence.evaluationCurrent,true);
+ assert.equal(pi.scalarLegacy.dqAnalysis.configuration.frequencyHz,50);assert.equal(pi.scalarLegacy.dqAnalysis.historicalVerification.configuration.frequencyHz,20);
+ assert.equal(pi.scalarLegacy.dqAnalysis.evidence.status,'stale');assert.equal(pi.freshness.evaluationCurrent,true);
  checks.push('PI export separates current PLL 50 Hz from historical 20 Hz approval; scalar evidence remains scoped');
  assert.deepEqual(errors,[]);checks.push('no browser page errors');
  writeFileSync(dir+'/pll-gfm-browser.json',JSON.stringify({passed:true,checks,errors},null,2));console.log('PLL and GFM step: '+checks.length+' flows passed.');

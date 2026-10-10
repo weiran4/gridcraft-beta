@@ -8,6 +8,9 @@ import {gflLinearModels} from './gfl-linear-model.js';
 import {evaluateGfl} from './gfl-linear-evaluation.js';
 import {linearStepMetrics} from './gfl-step-metrics.js';
 import {diagnoseGfl} from './gfl-tuning-diagnostics.js';
+import {evaluateGflMainline} from './gfl-mainline-evaluation.js';
+import {rankGflMainlineCandidates,rankingPolicyId} from './gfl-mainline-ranking.js';
+import {gflFingerprint} from './gfl-analysis-contract.js';
 export const policyId='gfl-tuning-advisor-v1';
 const keys=['d','q','P','Q'],logGrid=(a,b,n)=>Array.from({length:n},(_,i)=>a*(b/a)**(i/(n-1)));
 const unit=()=>Object.fromEntries(keys.map(k=>[k,{kp:1,ki:0}]));
@@ -39,26 +42,64 @@ function diverse(items,limit,target=null){
  for(const x of [...items].sort((a,b)=>b.frequency-a.frequency))take(x);
  return out;
 }
+const boundedLimit=(value,maximum,integer=false)=>{const n=typeof value==='number'&&!Number.isNaN(value)?value:maximum;return Math.min(maximum,Math.max(0,integer?Math.floor(n):n));};
 function pareto(items){return items.filter(a=>!items.some(b=>a!==b&&b.speed<=a.speed&&b.overshoot<=a.overshoot&&b.minMargin>=a.minMargin&&(b.speed<a.speed||b.overshoot<a.overshoot||b.minMargin>a.minMargin)));}
 export function searchGflCandidates(input,rawRequest={},baselineGains=null,options={}){
- const started=performance.now(),check=validateTuningRequest(rawRequest),request=check.request;
- const result={policyId,policyVersion:1,inputStatus:'valid',searchStatus:'notRun',targetStatus:'notSpecified',request,candidates:[],probes:[],rejections:{},diagnostics:[],budget:{evaluations:0,maxEvaluations:options.maxEvaluations??18000,maxMilliseconds:options.maxMilliseconds??25000},searchRange:null};
+ const mainline=options.snapshot?.modelId!==undefined&&options.snapshot.modelId!=='legacy-scalar',now=mainline?(options.runtime?.now??(()=>performance.now())):(()=>performance.now()),started=now();
+ const check=validateTuningRequest(mainline?rawRequest:Object.fromEntries(Object.entries(rawRequest??{}).filter(([k])=>!['maxSteadyStateErrorPercent','currentTargets','crossAxisLimits'].includes(k)))),request=check.request;
+ const result={policyId,policyVersion:1,inputStatus:'valid',searchStatus:'notRun',targetStatus:'notSpecified',request,candidates:[],probes:[],rejections:{},diagnostics:[],budget:{evaluations:0,maxEvaluations:mainline?boundedLimit(options.maxEvaluations,18000,true):options.maxEvaluations??18000,maxMilliseconds:mainline?boundedLimit(options.maxMilliseconds,25000):options.maxMilliseconds??25000},searchRange:null};
  if(!check.valid)return {...result,searchStatus:'invalidRequest',diagnostics:check.errors.map(e=>({code:'invalid-target',severity:'error',...e}))};
  try{validateModelFacts(input);}catch(error){return {...result,inputStatus:'invalid',searchStatus:'notRun',diagnostics:[{code:'invalid-model',severity:'error',message:error.message}]};}
  const dqSettings={...dqDefaults,...options.dqSettings};
- result.dqScreening={enabled:dqSettings.enabled,evaluated:0,accepted:0,rejected:0,unverified:0,maxEvaluations:options.maxDqEvaluations??64,configuration:dqSettings,scope:'dq-constrained scalar search; scalar performance ranking; no MIMO optimization or robustness guarantee'};
- if(dqSettings.enabled){
+ const isCancelled=()=>!!(options.runtime?.isCancelled?.()||options.isCancelled?.()),onProgress=event=>{options.runtime?.onProgress?.(event);if(options.onProgress!==options.runtime?.onProgress)options.onProgress?.(event);};
+ const requestedDeadline=options.runtime?.deadlineMs,deadline=typeof requestedDeadline==='number'&&!Number.isNaN(requestedDeadline)?requestedDeadline:Infinity;
+ const runtime={now,deadlineMs:Math.min(deadline,started+result.budget.maxMilliseconds),isCancelled,onProgress,cache:options.runtime?.cache??new Map()};
+ if(mainline){
+  result.rankingPolicyId=rankingPolicyId;result.modelId=options.snapshot.modelId;result.diagnosticCandidates=[];result.budget.maxCoupledEvaluations=boundedLimit(options.maxDqEvaluations,64,true);
+  result.mainlineScreening={evaluated:0,accepted:0,rejected:0,unverified:0,maxEvaluations:result.budget.maxCoupledEvaluations,scope:'one shared selected-model evaluation per canonical PI seed'};
+ }
+ result.dqScreening={enabled:!mainline&&dqSettings.enabled,evaluated:0,accepted:0,rejected:0,unverified:0,maxEvaluations:options.maxDqEvaluations??64,configuration:dqSettings,scope:'dq-constrained scalar search; scalar performance ranking; no MIMO optimization or robustness guarantee'};
+ if(!mainline&&dqSettings.enabled){
   try{
    gflDqModel(input,unit(),dqSettings); // Validate topology/settings once before the expensive scalar search.
    if(input.delaySamples!==0)throw Error('非零延时仅有 Padé 近似；不能生成已完成 PLL/dq 校核的推荐候选。');
   }catch(error){return {...result,diagnostics:[{code:'dq-unavailable',severity:'error',message:error.message}]};}
  }
  const p=modelFacts(input),maxFrequency=p.fs/10,minFrequency=request.mode==='target'?Math.min(.01,request.fi/50,request.fp/50):.01;
- result.searchRange={minimumHz:minFrequency,maximumInnerHz:maxFrequency,zeroRatio:[.01,10],beamWidth:options.maxInner??8,globallyOptimal:false};
+ result.searchRange={...(mainline?{scope:'scalar-seed'}:{}),minimumHz:minFrequency,maximumInnerHz:maxFrequency,zeroRatio:[.01,10],beamWidth:options.maxInner??8,globallyOptimal:false};
  const ratios=[...new Set([...logGrid(.01,10,13),.05,.2,5])].sort((a,b)=>a-b),cache=new Map(),all=[];
  const reject=reason=>result.rejections[reason]=(result.rejections[reason]||0)+1;
- const tick=()=>{result.budget.evaluations++;if(options.isCancelled?.())throw Error('cancelled');if(result.budget.evaluations>result.budget.maxEvaluations||performance.now()-started>result.budget.maxMilliseconds)throw Error('budgetExceeded');if(result.budget.evaluations%200===0)options.onProgress?.({evaluations:result.budget.evaluations,phase:'search'});};
- let baselineEvaluation=null;
+ const checkpoint=()=>{if(isCancelled())throw Error('cancelled');if(now()>=runtime.deadlineMs)throw Error('budgetExceeded');};
+ const tick=()=>{
+  if(mainline){checkpoint();if(result.budget.evaluations>=result.budget.maxEvaluations)throw Error('budgetExceeded');result.budget.evaluations++;if(result.budget.evaluations%200===0)onProgress({evaluations:result.budget.evaluations,phase:'search'});return;}
+  result.budget.evaluations++;if(options.isCancelled?.())throw Error('cancelled');if(result.budget.evaluations>result.budget.maxEvaluations||performance.now()-started>result.budget.maxMilliseconds)throw Error('budgetExceeded');if(result.budget.evaluations%200===0)options.onProgress?.({evaluations:result.budget.evaluations,phase:'search'});
+ };
+ let baselineEvaluation=null;const seen=new Set();
+ function assembleMainline(g,isBaseline){
+  const id=gflFingerprint('candidate',{gains:Object.fromEntries(keys.map(k=>[k,{kp:g[k].kp,ki:g[k].ki}]))});
+  if(seen.has(id))return;seen.add(id);checkpoint();
+  if(result.mainlineScreening.evaluated>=result.budget.maxCoupledEvaluations)throw Error('budgetExceeded');
+  result.mainlineScreening.evaluated++;result.budget.coupledEvaluations=result.mainlineScreening.evaluated;
+  onProgress({phase:'coupled-evaluation',evaluations:result.budget.evaluations,coupledEvaluations:result.mainlineScreening.evaluated});
+  const e=evaluateGflMainline({snapshot:options.snapshot,gains:g,experiments:options.experiments,policy:options.policy,request},runtime),scalar=e.scalarDiagnostics;
+  const tagSeed=e=>({...e,scope:'scalar-seed',scan:{...e.scan,scope:'scalar-seed'},loops:Object.fromEntries(keys.map(k=>[k,{...e.loops[k],scope:'scalar-seed',crossings:e.loops[k].crossings.map(c=>({...c,scope:'scalar-seed'}))}]))});
+  const evaluation=scalar?{...tagSeed(scalar),refinement:tagSeed(scalar.refinement)}:null;
+  if(isBaseline)baselineEvaluation=evaluation;
+  const verified=e.solveStatus==='completed'&&e.stability.status==='stable'&&e.responseQuality==='completed'&&!e.model?.delayRepresentation?.approximate,requirementsMet=verified&&e.application.eligible;
+  const candidate={id,isBaseline,gains:structuredClone(g),mainlineEvaluation:e,evaluation,verified,requirementsMet,targetStatus:requirementsMet?(e.targetResult.group==='reduced'?'partiallySatisfied':request.mode==='automatic'?'notSpecified':'satisfied'):'notSatisfied',unmet:e.targetResult.unmet,speed:e.performance.T,overshoot:e.performance.O,minMargin:scalar?Math.min(...keys.map(k=>scalar.loops[k].minMargin)):null,diagnosticOnly:!requirementsMet};
+  all.push(candidate);
+  if(requirementsMet)result.mainlineScreening.accepted++;
+  else if(e.solveStatus==='completed'&&['unstable','marginal'].includes(e.stability.status)){result.mainlineScreening.rejected++;reject('mainline-'+e.stability.status);}
+  else if(!verified){result.mainlineScreening.unverified++;reject('mainline-'+e.solveStatus+'-'+e.responseQuality);}else{result.mainlineScreening.rejected++;reject('mainline-target-unmet');}
+  if(!requirementsMet)result.diagnosticCandidates.push(candidate);
+  if(e.solveStatus!=='completed'){
+   result.diagnostics.push(...e.diagnostics.map(d=>({...d,candidateId:id})));
+   // A local numerical outcome does not exhaust the bounded pool. Keep its
+   // diagnostic evidence and continue independent seeds under the same budget.
+   if(e.solveStatus==='numericalFailure')checkpoint();
+   else throw Object.assign(Error(e.solveStatus),{code:e.solveStatus});
+  }
+ }
  function screen(k,known,cap){
   if(cap<minFrequency)return [];
   const desired=request.mode==='target'?(k==='d'||k==='q'?request.fi:request.fp):null;
@@ -86,7 +127,7 @@ export function searchGflCandidates(input,rawRequest={},baselineGains=null,optio
   if(!cache.has(token))cache.set(token,linearStepMetrics(gflLinearModels(p,g)[k],{includePoints:false}));return cache.get(token);
  }
  function assemble(g,isBaseline=false){
-  tick();const evaluation=evaluateGfl(p,g,{count:2001});
+  tick();if(mainline)return assembleMainline(g,isBaseline);const evaluation=evaluateGfl(p,g,{count:2001});
   if(keys.some(k=>evaluation.loops[k].crossings.length!==1||evaluation.loops[k].scanStatus!=='ok'||evaluation.loops[k].minMargin<request.minMargin-.005||evaluation.loops[k].nearTangency)){reject('dense-frequency-validation');return;}
   // Repeat at a different grid density so narrow resonance crossings cannot be
   // accepted solely because the candidate was constructed on the first grid.
@@ -99,7 +140,7 @@ export function searchGflCandidates(input,rawRequest={},baselineGains=null,optio
   if(p.delaySamples===0&&!verified){reject('step-unresolved');return;}
   const speed=verified?Math.max(...keys.map(k=>evaluation.loops[k].step.settlingTimeSeconds)):Infinity,overshoot=verified?Math.max(...keys.map(k=>evaluation.loops[k].step.overshootPercent)):Infinity,minMargin=Math.min(...keys.map(k=>evaluation.loops[k].minMargin));
   let dqVerification=null;
-  if(dqSettings.enabled){
+  if(!mainline&&dqSettings.enabled){
    if(result.dqScreening.evaluated>=result.dqScreening.maxEvaluations)throw Error('budgetExceeded');
    tick();result.dqScreening.evaluated++;
    options.onProgress?.({evaluations:result.budget.evaluations,phase:'PLL/dq 联立筛选',dqEvaluations:result.dqScreening.evaluated});
@@ -117,16 +158,37 @@ export function searchGflCandidates(input,rawRequest={},baselineGains=null,optio
   const probe=inner.find(x=>Math.abs(x.frequency-50)<1e-9&&Math.abs(x.zeroRatio-.05)<1e-10);if(probe&&!beam.includes(probe))beam.push(probe);
   for(const i of beam){tick();const g={...initial,d:i.gain,q:i.gain},cap=i.frequency/request.separationRatio;
    const best={};for(const k of ['P','Q']){
-    const choices=diverse(screen(k,g,cap),10,request.mode==='target'?request.fp:null).map(x=>{const gg={...g,[k]:x.gain},step=stepFor(k,gg);return {...x,step};}).filter(x=>p.delaySamples!==0||x.step.status==='ok');
+    const choices=diverse(screen(k,g,cap),10,request.mode==='target'?request.fp:null).map(x=>{const gg={...g,[k]:x.gain},step=stepFor(k,gg);return {...x,step};}).filter(x=>mainline||p.delaySamples!==0||x.step.status==='ok');
     // Target-near and time-efficient shapes both survive the outer beam.
-    choices.sort((a,b)=>{if(request.mode==='target'){const da=Math.abs(Math.log(a.frequency/request.fp)),db=Math.abs(Math.log(b.frequency/request.fp));if(Math.abs(da-db)>.05)return da-db;}return p.delaySamples!==0?b.margin-a.margin:(a.step.settlingTimeSeconds*(1+a.step.overshootPercent/100))-(b.step.settlingTimeSeconds*(1+b.step.overshootPercent/100));});
+    choices.sort((a,b)=>{if(request.mode==='target'){const da=Math.abs(Math.log(a.frequency/request.fp)),db=Math.abs(Math.log(b.frequency/request.fp));if(Math.abs(da-db)>.05)return da-db;}if(!mainline)return p.delaySamples!==0?b.margin-a.margin:(a.step.settlingTimeSeconds*(1+a.step.overshootPercent/100))-(b.step.settlingTimeSeconds*(1+b.step.overshootPercent/100));const cost=x=>x.step.status==='ok'?x.step.settlingTimeSeconds*(1+x.step.overshootPercent/100):Infinity;return p.delaySamples!==0?b.margin-a.margin:cost(a)-cost(b)||b.margin-a.margin;});
     best[k]=choices.slice(0,2);
    }
    for(const d of best.P)for(const q of best.Q)assemble({...g,P:d.gain,Q:q.gain});
   }
-  if(baselineGains){baselineEvaluation=evaluateGfl(p,baselineGains);assemble(baselineGains,true);}
+  if(baselineGains){if(!mainline)baselineEvaluation=evaluateGfl(p,baselineGains);assemble(baselineGains,true);}
   result.searchStatus=all.length?(!all.some(c=>c.requirementsMet)&&(request.mode==='target'||request.maxOvershootPercent!==null||request.maxSettlingSeconds!==null)?'targetNotMet':'feasibleFound'):'noCandidateFound';
- }catch(error){result.searchStatus=['cancelled','budgetExceeded'].includes(error.message)?error.message:'numericalFailure';if(result.searchStatus==='numericalFailure')result.diagnostics.push({code:'search-failure',severity:'error',message:error.message});}
+ }catch(error){result.searchStatus=(mainline&&error.code)||(['cancelled','budgetExceeded'].includes(error.message)?error.message:'numericalFailure');if(result.searchStatus==='numericalFailure')result.diagnostics.push({code:'search-failure',severity:'error',message:error.message});}
+ if(mainline){
+  const ranking=rankGflMainlineCandidates(all,request);result.ranking={fronts:ranking.fronts,diagnostics:ranking.diagnostics,rankingPolicyId:ranking.rankingPolicyId};
+  result.candidates=ranking.ordered.slice(0,3);
+  if(!['cancelled','budgetExceeded','unsupported','invalidInput','operatingPointFailure','numericalFailure'].includes(result.searchStatus))result.searchStatus=ranking.diagnostics.qualified?'feasibleFound':all.some(c=>c.verified)?'targetNotMet':'noCandidateFound';
+  result.targetStatus=result.candidates.some(c=>c.requirementsMet&&c.mainlineEvaluation.targetResult.group==='satisfied')?(request.mode==='automatic'&&request.maxOvershootPercent===null&&request.maxSettlingSeconds===null&&request.maxSteadyStateErrorPercent===null&&!request.currentTargets&&!request.crossAxisLimits?'notSpecified':'satisfied'):result.candidates.some(c=>c.requirementsMet&&c.mainlineEvaluation.targetResult.group==='reduced')?'partiallySatisfied':'notSatisfied';
+  const complete=['feasibleFound','targetNotMet','noCandidateFound'].includes(result.searchStatus);
+  result.completionScope={complete,scope:'bounded scalar-seed pool evaluated by the selected coupled model',globallyOptimal:false};
+  if(!complete){
+   for(const c of all){
+    c.incompleteSearch=true;c.diagnosticOnly=true;c.requirementsMet=false;c.targetStatus='notSatisfied';
+    c.mainlineEvaluation={...c.mainlineEvaluation,application:{eligible:false,reasons:[...c.mainlineEvaluation.application.reasons,'本次有界搜索未完成，候选仅供诊断。']}};
+    if(!result.diagnosticCandidates.includes(c))result.diagnosticCandidates.push(c);
+   }
+   // Retain selected partial records for diagnosis, never in a qualified front.
+   const diagnosticRanking=rankGflMainlineCandidates(all,request);result.ranking={fronts:diagnosticRanking.fronts,diagnostics:diagnosticRanking.diagnostics,rankingPolicyId};
+   result.targetStatus='notSatisfied';
+  }
+  result.probes=result.probes.map(probe=>({...probe,scope:'scalar-seed'}));
+  result.budget.coupledEvaluations=result.mainlineScreening.evaluated;result.budget.elapsedMilliseconds=now()-started;result.budget.completedCandidates=all.filter(c=>c.mainlineEvaluation.solveStatus==='completed').length;
+  result.diagnostics.push(...diagnoseGfl(input,request,baselineEvaluation,result));return result;
+ }
  let pool=all.filter(c=>c.requirementsMet);if(!pool.length)pool=all;
  // Exact crossover goals precede optional reductions, before Pareto selection.
  if(request.mode==='target'&&pool.some(c=>c.targetStatus==='satisfied'))pool=pool.filter(c=>c.targetStatus==='satisfied');

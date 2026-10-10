@@ -1,12 +1,14 @@
 import {dqDefaults} from '../analysis/gfl-dq-model.js';
+import {gflCanonicalSnapshot} from '../analysis/gfl-analysis-contract.js';
+import {assertGflApplicationTicket,gflEvidenceFreshness,readGflApplicationEvidence} from './gfl-analysis-evidence.js';
+import {readGflAnalysisSettings} from './gfl-analysis-settings.js';
 /** Candidate transactions never rewrite electrical facts or unrelated extensions. */
 import {validateGains} from '../analysis/gfl-frequency.js';
 const copy=v=>v===undefined?undefined:structuredClone(v);
 const equal=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 const mode=s=>`${s.dMode??'P'}/${s.qMode??'Q'}`;
 export function tuningSnapshot(value){
- const stable=v=>v&&typeof v==='object'?(Array.isArray(v)?v.map(stable):Object.fromEntries(Object.keys(v).sort().map(k=>[k,stable(v[k])]))):v;
- return JSON.stringify(stable(value)); // exact canonical input, no hash collision
+ return gflCanonicalSnapshot(value); // exact canonical input, no hash collision
 }
 export function createTuningState(stored={}){
  return {mode:mode(stored),baselineGains:copy(stored.gains)??null,baselineManual:stored.manual===true,
@@ -17,6 +19,10 @@ export function previewCandidate(state,candidate,snapshotKey){return {...copy(st
 export function applyCandidate(project,ibrId,state,currentSnapshotKey){
  if(state.snapshotKey!==currentSnapshotKey)throw Error('候选已过期，请重新生成。');
  const stored=project.extensions?.gflPi?.[ibrId]??{};
+ const analysis=readGflAnalysisSettings(project,ibrId),modelId=analysis?.modelId;
+ if(analysis?.schemaVersion!==1||analysis?.modelVersion!==1)throw Error('未支持的 GFL 分析模型或设置版本。');
+ if(modelId==='gfl-dq-reference-v1')assertGflApplicationTicket(state.mainlineTicket,project,ibrId,state,currentSnapshotKey);
+ else if(modelId!=='legacy-scalar')throw Error('未支持的主线模型，需要重新选择受支持的模型。');
  if(mode(stored)!==state.mode)throw Error('控制模式已改变，请重新生成。');
  if(!equal(stored.gains??null,state.baselineGains))throw Error('现有 PI 已改变，不能应用旧候选。');
  const c=state.candidate;if(!c||!c.verified||!c.requirementsMet||c.incompleteSearch)throw Error('候选尚未完成全部要求的验证，不能作为推荐自动应用。');
@@ -25,7 +31,8 @@ export function applyCandidate(project,ibrId,state,currentSnapshotKey){
  const evaluation=copy(c.evaluation);if(evaluation){delete evaluation.series;delete evaluation.closedSeries;}
  const next=copy(project);next.extensions??={};next.extensions.gflPi??={};
  const dest=next.extensions.gflPi[ibrId]??={};
- const undo={mode:state.mode,gains:copy(stored.gains)??null,manual:stored.manual===true};
+ const undo={mode:state.mode,gains:copy(stored.gains)??null,manual:stored.manual===true,
+  ...(modelId==='gfl-dq-reference-v1'?{gainBankEntry:copy(stored.gainBank?.[state.mode])??null}:{} )};
  Object.assign(dest,{gains:copy(c.gains),manual,gainBank:{...(dest.gainBank??{}),[state.mode]:{gains:copy(c.gains),manual}}});
  dest.advisor={...(dest.advisor??{}),policyId:manual?'gfl-manual-evaluation-v1':'gfl-tuning-advisor-v1',policyVersion:1,applicationStatus:'applied',appliedMode:state.mode,
   appliedGains:copy(c.gains),snapshotKey:currentSnapshotKey,candidateId:c.id,candidateSource:manual?'manual':'auto',candidateName:c.name??null,evaluation,targetStatus:c.targetStatus,undo};
@@ -40,10 +47,19 @@ export function restoreAppliedGains(project,ibrId,state){
  if(undo.gains===null){delete dest.gains;delete dest.gainBank?.[undo.mode];}else{
   dest.gains=copy(undo.gains);dest.gainBank={...(dest.gainBank??{}),[undo.mode]:{gains:copy(undo.gains),manual:undo.manual}};
  }
+ if(Object.hasOwn(undo,'gainBankEntry')){
+  if(undo.gainBankEntry===null)delete dest.gainBank?.[undo.mode];
+  else dest.gainBank={...(dest.gainBank??{}),[undo.mode]:copy(undo.gainBankEntry)};
+ }
  dest.manual=undo.manual;dest.advisor={...a,applicationStatus:'restored',appliedGains:null,undo:null};
+ if(a.mainlineEvidence)dest.advisor.mainlineEvidence={...copy(a.mainlineEvidence),status:'unassessed'};
  return next;
 }
 export function applicationEvidence(stored={},facts){
+ if(stored.analysis?.modelId==='gfl-dq-reference-v1'){
+  const historical=readGflApplicationEvidence(stored),freshness=gflEvidenceFreshness(historical,facts),matches=stored.advisor?.appliedMode===mode(stored)&&equal(stored.gains,stored.advisor?.appliedGains);
+  return {status:historical?.status==='unassessed'?'unassessed':matches&&freshness.evaluationCurrent?'applied':historical?'stale':stored.gains?'baseline':'unapplied',...freshness,evaluationCurrent:matches&&freshness.evaluationCurrent};
+ }
  const a=stored.advisor;if(!a?.appliedGains)return {status:stored.gains?'baseline':'unapplied',evaluationCurrent:false,dq:{status:'unassessed',evaluationCurrent:false}};
  const current=a.appliedMode===mode(stored)&&equal(stored.gains,a.appliedGains)&&a.factSnapshot===tuningSnapshot(facts);
  const configuration={...dqDefaults,...stored.dqAnalysis},historical=a.dqVerification;
@@ -54,5 +70,9 @@ export function applicationEvidence(stored={},facts){
 
 /** Export current model options separately from the historical application record. */
 export function gflDqEvidenceExport(stored={},facts){
- return {configuration:copy({...dqDefaults,...stored.dqAnalysis}),evidence:applicationEvidence(stored,facts).dq,historicalVerification:copy(stored.advisor?.dqVerification)??null};
+ return {scope:'legacy-scalar-dq-side-check',configuration:copy({...dqDefaults,...stored.dqAnalysis}),
+  evidence:applicationEvidence(stored,facts).dq??{status:'notApplicable',evaluationCurrent:false},historicalVerification:copy(stored.advisor?.dqVerification)??null,
+  mainline:{configuration:copy(stored.analysis)??null,historicalApplication:readGflApplicationEvidence(stored),
+   activePointer:stored.advisor?.mainlineEvidence?.kind==='gfl-mainline-evidence-pointer'?copy(stored.advisor.mainlineEvidence):null,
+   applicationAuthority:'none'}};
 }

@@ -1,8 +1,12 @@
-import {searchGflCandidates} from '../analysis/gfl-tuning-search.js';
+import {createGflAnalysisDispatcher} from './gfl-analysis-worker.js';
+const dispatch=createGflAnalysisDispatcher({postMessage:message=>{
+ if(message.type==='started')return;
+ const snapshotKey=message.requestKey,result=message.type==='result'?{...message.result,snapshotKey}:undefined;
+ self.postMessage({...message,snapshotKey,...(result?{result}:{})});
+}});
 self.onmessage=({data})=>{
+ if(data.type==='run'){dispatch(data);return;}
  if(data.type!=='search')return;
- const {requestId,snapshotKey,input,request,baselineGains,dqSettings}=data;
- try{const result=searchGflCandidates(input,request,baselineGains,{dqSettings,onProgress:progress=>self.postMessage({type:'progress',requestId,snapshotKey,progress})});
-  result.snapshotKey=snapshotKey;self.postMessage({type:'result',requestId,snapshotKey,result});
- }catch(error){self.postMessage({type:'error',requestId,snapshotKey,message:error.message});}
+ const {requestId,snapshotKey,input,request,baselineGains,dqSettings,snapshot,experiments,policy,options}=data;
+ dispatch({type:'run',kind:'search',requestId,requestKey:snapshotKey,payload:{input,request,baselineGains,dqSettings,snapshot,experiments,policy,options},cacheEntries:data.cacheEntries});
 };
