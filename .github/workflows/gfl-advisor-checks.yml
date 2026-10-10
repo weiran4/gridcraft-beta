@@ -1,0 +1,77 @@
+name: GFL advisor checks
+on:
+  push:
+    branches: [feat/gfl-tuning-advisor]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: gfl-advisor-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Tracked source snapshot
+        run: |
+          mkdir -p artifacts/gfl-advisor
+          git archive --format=tar HEAD > artifacts/gfl-advisor/source.tar
+          git rev-parse HEAD > artifacts/gfl-advisor/source-commit.txt
+      - name: Unit tests
+        run: npm test
+      - name: Build static site
+        run: npm run build
+      - name: Audit static site
+        run: npm run audit:static
+      - name: Independent numeric check
+        if: ${{ hashFiles('scripts/validate-gfl-advisor.py') != '' }}
+        run: |
+          python -m pip install numpy scipy
+          node scripts/validate-gfl-advisor.mjs
+          python scripts/validate-gfl-advisor.py
+      - name: GFM independent numeric check
+        run: |
+          node scripts/validate-gfm-advisor.mjs
+          python scripts/validate-gfm-advisor.py
+      - name: GFL PLL dq independent model checks
+        if: ${{ hashFiles('scripts/validate-gfl-dq.py') != '' }}
+        run: |
+          node scripts/validate-gfl-dq.mjs
+          python scripts/validate-gfl-dq.py
+      - name: Browser checks
+        if: ${{ hashFiles('scripts/browser-gfl-advisor.mjs') != '' }}
+        env:
+          SITE_DIR: dist
+        run: |
+          npm install --no-save --package-lock=false playwright@1.56.1
+          npx playwright install --with-deps chromium
+          node scripts/browser-gfl-advisor.mjs
+      - name: Four-panel layout checks
+        env:
+          SITE_DIR: dist
+        run: node scripts/browser-gfl-four-panel.mjs
+      - name: Manual candidate interaction checks
+        env:
+          SITE_DIR: dist
+        run: node scripts/browser-gfl-manual.mjs
+      - name: GFM advisor interaction checks
+        env:
+          SITE_DIR: dist
+        run: node scripts/browser-gfm-advisor.mjs
+      - name: PLL and GFM step interactions
+        env:
+          SITE_DIR: dist
+        run: node scripts/browser-pll-and-gfm-step.mjs
+      - name: Validation artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gfl-advisor-validation
+          path: artifacts/gfl-advisor
+          if-no-files-found: ignore

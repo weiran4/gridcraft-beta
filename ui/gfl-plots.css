@@ -1,0 +1,20 @@
+/* GFL-specific geometry; GFM retains its existing overlaid Bode view. */
+.gfl-workbench .bode-loop-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.gfl-workbench .bode-loop-card{min-width:0;border:1px solid #dce5e8;border-radius:5px;padding:12px;box-sizing:border-box}
+.gfl-workbench .bode-loop-card h3{font-size:15px;line-height:24px;height:24px;margin:0 0 8px}
+.gfl-workbench .bode-loop-stage{height:360px;position:relative;overflow:hidden}
+.gfl-workbench #bodePlot .bode-loop-stage svg{width:100%;height:360px;display:block}
+.gfl-workbench .bode-empty{position:absolute;inset:0;display:grid;place-items:center;font-size:12px;color:#71808c;text-align:center;padding:14px}
+.gfl-workbench #bodeMetrics,.gfl-workbench #gainSummary{min-height:217px;overflow-x:auto}
+.gfl-workbench #bodeMetrics table,.gfl-workbench #gainSummary table{table-layout:fixed;min-width:650px}
+.gfl-workbench #bodeMetrics td,.gfl-workbench #gainSummary td{height:35px;box-sizing:border-box;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+/* Prevent status/diagnostic text and loading state from moving the PI controls. */
+.gfl-workbench #advisorStatus{display:block;height:48px;min-height:48px;box-sizing:border-box;overflow:auto;padding:9px 10px;margin:10px 0;border:1px solid transparent;line-height:1.7}
+.gfl-workbench #advisorDiagnostics{height:175px;max-height:175px;box-sizing:border-box;overflow:auto}
+.gfl-workbench #gainMode{min-height:44px;max-height:44px;overflow:auto}
+.gfl-workbench .advisor-table table{table-layout:fixed}
+.gfl-workbench .advisor-table td{height:40px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gfl-workbench .advisor-table th{height:52px;box-sizing:border-box}
+.gfl-workbench #designError{display:block!important;box-sizing:border-box;height:48px;overflow:auto;padding:10px 12px;margin:8px 0;border:1px solid #dba295;font-size:12px}
+.gfl-workbench #designError:empty{visibility:hidden}
+@media(max-width:900px){.gfl-workbench .bode-loop-grid{grid-template-columns:1fr}}
