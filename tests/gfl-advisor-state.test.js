@@ -40,3 +40,14 @@ test('applied evaluation is marked stale after facts or gains change',async()=>{
  assert.equal(applicationEvidence({...s,gains:{...g,P:{kp:9,ki:10}}},{R:1}).status,'stale');
  assert.equal(applicationEvidence(p.extensions.gflPi.PV1,{R:1}).status,'baseline');
 });
+test('PLL-only edits stale dq evidence while scalar evidence remains current, and exports include both configurations',async()=>{
+ const {applicationEvidence,gflDqEvidenceExport}=await import('../project/gfl-tuning-state.js');
+ const {saveDqSettings,readDqSettings}=await import('../project/gfl-dq-settings.js');
+ const p=saveDqSettings(load(),'PV1',{enabled:true,frequencyHz:20}),s=p.extensions.gflPi.PV1,facts={R:1};
+ s.advisor={appliedMode:'Vdc/Vac',appliedGains:s.gains,factSnapshot:tuningSnapshot(facts),dqVerification:{status:'stable',configuration:readDqSettings(p,'PV1')}};
+ assert.equal(applicationEvidence(s,facts).dq.evaluationCurrent,true);
+ const next=saveDqSettings(p,'PV1',{frequencyHz:50}),n=next.extensions.gflPi.PV1,e=applicationEvidence(n,facts);
+ assert.equal(e.evaluationCurrent,true);assert.equal(e.dq.evaluationCurrent,false);assert.equal(e.dq.status,'stale');
+ const out=gflDqEvidenceExport(n,facts);assert.equal(out.configuration.frequencyHz,50);assert.equal(out.historicalVerification.configuration.frequencyHz,20);assert.equal(out.evidence.status,'stale');
+ assert.equal(applicationEvidence({...n,gains:{...n.gains,P:{kp:9,ki:10}}},facts).dq.evaluationCurrent,false);
+});

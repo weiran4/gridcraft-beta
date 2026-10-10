@@ -1,5 +1,6 @@
 name: GFL advisor checks
 on:
+  workflow_call:
   push:
     branches: [feat/gfl-tuning-advisor]
   pull_request:
@@ -64,6 +65,10 @@ jobs:
         env:
           SITE_DIR: dist
         run: node scripts/browser-gfm-advisor.mjs
+      - name: GFM manual candidate interaction checks
+        env:
+          SITE_DIR: dist
+        run: node scripts/browser-gfm-manual.mjs
       - name: PLL and GFM step interactions
         env:
           SITE_DIR: dist
@@ -73,5 +78,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: gfl-advisor-validation
-          path: artifacts/gfl-advisor
+          path: |
+            artifacts/gfl-advisor
+            artifacts/gfm-manual
           if-no-files-found: ignore

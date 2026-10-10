@@ -1,6 +1,6 @@
 # GFL SRF-PLL / dq 联立工程参考模型 v1
 
-This change adds an **opt-in, model-scoped post-check**, not an IEEE-certified
+This change adds an **opt-in, model-scoped coupled check**, not an IEEE-certified
 universal converter. The existing GFL scalar tuner/step views remain a baseline.
 GFM's new four-step view uses **its own existing** current/voltage scalar model;
 GFM synchronization is not replaced by a GFL PLL.
@@ -146,12 +146,20 @@ No individual phase margin is assigned to these closed-loop channels.
 ## Integration policy
 
 Old projects load with this extra check disabled and their eight gains untouched.
-Enabling saves only per-inverter `dqAnalysis` options. Automatic scalar candidate
-search is unchanged, and explicitly identified as a baseline. Current and selected
+Enabling saves only per-inverter `dqAnalysis` options. Automatic candidate construction and performance ranking remain scalar. When enabled,
+the assembled candidate pool is screened with the existing coupled dq model before
+Pareto selection and final truncation. The coupled solve budget is 64 by default,
+within the existing time/evaluation budget; partial searches are not applicable.
+Unsupported topology or nonzero delay stops this enabled search before expensive
+scalar work. This is dq-constrained scalar search, not MIMO optimization or a
+robustness guarantee. Current and selected
 candidate/manual draft are evaluated with independent Worker snapshots. On applying
 an automatic/manual candidate while enabled, re-evaluate the current full model;
 reject unstable/unassessed/nonzero-Padé-only results. Saving an experimental named
-candidate remains allowed. This is post-validation, **not global dq-aware PI search**.
+candidate remains allowed. Application still revalidates the current model; this is **not global dq-aware PI search**.
+PLL option changes invalidate search snapshots. Exports separate current dq settings,
+scoped evidence freshness and historical approval; a PLL-only edit does not stale
+the independently scoped scalar result, but does stale coupled approval.
 
 Read-only analysis/export/option changes never re-tune or apply PI. Baseline Bode
 and time traces remain visible with their original scope; the new matrix and poles

@@ -9,7 +9,10 @@ concurrency:
   group: pages
   cancel-in-progress: false
 jobs:
+  validation:
+    uses: ./.github/workflows/gfl-advisor-checks.yml
   build:
+    needs: validation
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

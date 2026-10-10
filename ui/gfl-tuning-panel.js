@@ -53,11 +53,12 @@ export function mountGflTuningPanel(host,callbacks){
   q('advisorChoice').value=selected?.id??'';
   q('advisorChoice').disabled=!candidates.length||busy;
   q('advisorApply').disabled=Boolean(model.invalid||busy||(manualView.active?(manualView.busy||manualView.invalid):stale)||!selected?.verified||!selected?.requirementsMet||selected?.incompleteSearch);
-  const statusNames={feasibleFound:'候选已生成；尚未应用',targetNotMet:'目标未满足；下列为可比较的备选',noCandidateFound:'本次搜索未找到完成校核的候选',budgetExceeded:'预算耗尽；不能据此断言不可行',cancelled:'已取消',invalidRequest:'整定目标无效',numericalFailure:'数值校核未完成'};
+  const statusNames={notRun:'搜索未运行，请检查模型诊断',feasibleFound:'候选已生成；尚未应用',targetNotMet:'目标未满足；下列为可比较的备选',noCandidateFound:'本次搜索未找到完成校核的候选',budgetExceeded:'预算耗尽；不能据此断言不可行',cancelled:'已取消',invalidRequest:'整定目标无效',numericalFailure:'数值校核未完成'};
   q('advisorStatus').textContent=message||(stale?'候选已过期，请重新生成。':result?statusNames[result.searchStatus]:'当前 PI 保持原值。选择整定方式后生成候选。');
   q('advisorStatus').className=(stale||model.invalid||['targetNotMet','noCandidateFound','invalidRequest','numericalFailure'].includes(result?.searchStatus))?'note warning':'small-note';
   if(manualView.active)q('advisorStatus').textContent=manualView.invalid?'试调输入无效；当前 PI 保持原值。':manualView.busy?'正在校核手动试调；当前 PI 保持原值。':selected?.requirementsMet?'手动试调已通过当前要求；尚未应用。':'手动试调尚未满足全部要求，可命名暂存后继续比较。';
-  if(model.dqSettings?.enabled)q('advisorStatus').textContent+=' 已启用 PLL/dq，应用还须通过下方联立模型校核。';
+  if(model.dqSettings?.enabled)q('advisorStatus').textContent+=' 已启用 PLL/dq 约束标量搜索；性能仍按标量指标排序，非 MIMO 优化或稳健性保证。';
+  if(result?.dqScreening?.enabled){const d=result.dqScreening;q('advisorStatus').textContent+=` 联立筛选 ${d.evaluated}/${d.maxEvaluations}：通过 ${d.accepted}，不稳定 / 临界 ${d.rejected}，未完成 ${d.unverified}。${stale?'此统计对应旧设置。':''}`;}
   const diagnostics=[...(model.diagnostics??[]),...(manualView.active?[]:(result?.diagnostics??[]))];
   q('advisorDiagnostics').innerHTML=diagnostics.map(d=>`<p class="small-note${d.severity==='error'?' error':''}">${esc(d.field?d.field+'：':'')}${esc(d.message)}</p>`).join('')+(selected?.unmet?.length?`<p class="note warning">${selected.unmet.map(esc).join('；')}</p>`:'');
   const rows=['d','q','P','Q'].map(k=>{const a=current?.loops?.[k],b=selected?.evaluation?.loops?.[k];const hz=l=>l?.crossings?.map(x=>number(x.frequency)).join(' / ')||'—';return `<tr><td>${esc(labels[k]??k)}</td><td>${request.mode==='target'?number(k==='d'||k==='q'?request.fi:request.fp):'自动'}</td><td>${hz(a)}</td><td>${hz(b)}</td><td>${number(a?.minMargin)} / ${number(b?.minMargin)}</td><td>${ms(a?.step?.settlingTimeSeconds)} / ${ms(b?.step?.settlingTimeSeconds)}</td><td>${number(a?.step?.overshootPercent)} / ${number(b?.step?.overshootPercent)}</td><td>${number(a?.bandwidth?.hz)} / ${number(b?.bandwidth?.hz)}</td></tr>`;});

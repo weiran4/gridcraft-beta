@@ -1,0 +1,42 @@
+import {demo} from '../examples/demo.js';
+import {readGfmAdvisor} from '../project/gfm-advisor-state.js';
+import {autoTuneGfm} from '../analysis/gfm-pi.js';
+// HTTP + real module Workers; test the built site in CI, without a new runtime dependency.
+import {createServer} from 'node:http';
+import {readFileSync,existsSync,mkdirSync,writeFileSync,statSync} from 'node:fs';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+const {chromium}=await import(process.env.PLAYWRIGHT_MODULE||'playwright'),out='artifacts/gfm-manual';mkdirSync(out,{recursive:true});
+const root=path.resolve(process.env.SITE_DIR||'.'),fixture=demo('gfm480');
+const initial=readGfmAdvisor(fixture,'GFM1');fixture.extensions.gfmPi.GFM1.gains=autoTuneGfm({...initial.input,fi:500,fv:50,pm:60}).gains;
+const server=createServer((req,res)=>{const u=new URL(req.url,'http://localhost'),f=path.resolve(root,'.'+decodeURIComponent(u.pathname==='/'?'/index.html':u.pathname));if(!f.startsWith(root+path.sep)||!existsSync(f)||!statSync(f).isFile()){res.writeHead(404).end();return;}res.setHeader('Content-Type',({'.js':'text/javascript','.css':'text/css','.html':'text/html','.json':'application/json'})[path.extname(f)]||'application/octet-stream');res.end(readFileSync(f));});
+await new Promise(r=>server.listen(0,'127.0.0.1',r));const origin=`http://127.0.0.1:${server.address().port}`;
+const browser=await chromium.launch({headless:true,...(process.env.CHROMIUM_EXECUTABLE?{executablePath:process.env.CHROMIUM_EXECUTABLE}:{}),args:['--no-sandbox']}),ctx=await browser.newContext({viewport:{width:1366,height:900}}),page=await ctx.newPage(),errors=[],checks=[];
+page.on('pageerror',e=>errors.push(e.message));page.setDefaultTimeout(12000);
+const saved=()=>page.evaluate(()=>JSON.parse(localStorage.getItem('gridcraft-v1'))),applied=async()=>(await saved()).extensions.gfmPi.GFM1.gains;
+const edit=async(sel,value)=>{await page.locator(sel).fill(String(value));await page.locator(sel).dispatchEvent('change');};
+const ready=()=>page.waitForFunction(()=>document.getElementById('gfmStepPreview')?.dataset.state==='ready'&&document.getElementById('manualWorkspace')?.dataset.busy!=='true');
+const card=k=>`[data-step-loop="${k}"]`,trace=k=>page.locator(card(k)+' [data-curve="step-candidate"]');
+try{
+ await page.goto(origin+'/gfm.html?ibr=GFM1');await page.evaluate(p=>localStorage.setItem('gridcraft-v1',JSON.stringify(p)),fixture);await page.reload();await ready();
+ assert.equal(await page.locator('[data-manual-slider]').count(),8);const before=await applied();checks.push('four GFM cards expose eight controls');
+ const currentMetric=await page.locator('[data-step-metric="d-current-settling"]').innerText();
+ await edit('[data-manual-gain="d.kp"]',before.d.kp*1.03);await ready();
+ assert.equal(await trace('d').count(),1);assert.notEqual(await trace('d').getAttribute('d'),await page.locator(card('d')+' [data-curve="step-current"]').getAttribute('d'));
+ assert.equal(await page.locator('[data-step-metric="d-current-settling"]').innerText(),currentMetric);assert.deepEqual(await applied(),before);
+ assert.equal(await page.locator('#bodePlot [data-bode-trace]').count(),8);assert.ok((await page.locator('#bodePlot [data-bode-trace="d"]').first().getAttribute('d')).length>100);assert.match(await page.locator('#stability').innerText(),/试调 PI/);checks.push('valid trial changes response trace and renders all Bode paths while current response stays fixed');
+ await page.locator('#manualReset').click();await ready();
+ const sel='[data-manual-slider="d.kp"]',max=await page.locator(sel).getAttribute('max');
+ await page.locator(sel).evaluate(el=>{window.anchor=el;for(const v of [.2,.3,.25]){el.value=Number(el.max)*v;el.dispatchEvent(new Event('input',{bubbles:true}));}});await ready();
+ assert.equal(await page.locator(sel).getAttribute('max'),max);assert.ok(await page.locator(sel).evaluate(el=>el===window.anchor));assert.deepEqual(await applied(),before);assert.equal(await page.locator('#bodePiSource').inputValue(),'comparison');assert.match(await page.locator('#bodeParameterStatus').innerText(),/试调/);checks.push('drag updates trial Bode and preserves applied parameters, scale and DOM');
+ await page.locator('#manualLinkedDq').check();await edit('[data-manual-gain="d.ki"]',2);await ready();assert.equal(Number(await page.locator('[data-manual-gain="q.ki"]').inputValue()),2);
+ await page.locator('#manualIntegralForm').selectOption('ti');await edit('[data-manual-gain="P.ki"]','∞');await ready();assert.equal(await page.locator('[data-manual-slider="P.ki"]').isDisabled(),true);await page.locator('#manualIntegralForm').selectOption('ki');assert.equal(await page.locator('[data-manual-gain="P.ki"]').inputValue(),'0');checks.push('dq linkage and Ki/Ti integral-off behavior');
+ await page.locator('#manualReset').click();await ready();await page.locator('#manualName').fill('GFM saved <trial>');await page.locator('#manualSave').click();await ready();const record=Object.values((await saved()).extensions.gfmPi.GFM1.manualCandidates)[0];assert.ok(record);assert.deepEqual(record.gains,before);assert.deepEqual(await applied(),before);
+ await page.reload();await ready();await page.locator('#gfmChoice').selectOption(record.id);await ready();assert.equal(await page.locator('#manualName').inputValue(),record.name);checks.push('explicit named save survives reload without application');
+ await page.locator('[data-mode="vsg"]').click();await ready();assert.equal(await page.locator('#gfmChoice option[value="'+record.id+'"]').count(),0);await page.locator('[data-mode="droop"]').click();await ready();assert.equal(await page.locator('#gfmChoice option[value="'+record.id+'"]').count(),1);checks.push('mode switch isolates named trials');
+ await page.locator('#gfmChoice').selectOption(record.id);await ready();await edit('[data-manual-gain="P.kp"]',-1);assert.equal(await page.locator('#manualSave').isDisabled(),true);assert.equal(await page.locator('#manualApply').isDisabled(),true);assert.deepEqual(await applied(),before);await page.locator('#manualReset').click();await ready();checks.push('invalid inputs block save and apply without touching current PI');
+ await page.locator('#gfmGenerate').click();await page.waitForFunction(()=>!document.getElementById('gfmGenerate').disabled,{},{timeout:90000});await ready();
+ const candidateKp=await page.locator('[data-manual-gain="d.kp"]').inputValue();await edit('[data-manual-gain="d.kp"]',candidateKp);await ready();await page.waitForFunction(()=>!document.getElementById('manualApply').disabled);await page.locator('#manualApply').click();await ready();assert.equal((await saved()).extensions.gfmPi.GFM1.manual,true);await page.locator('#gfmRestore').click();await ready();assert.deepEqual(await applied(),before);checks.push('freshly checked manual apply and existing undo');
+ for(const [name,width,height]of [['desktop',1366,900],['mobile',390,844]]){await page.setViewportSize({width,height});await page.waitForTimeout(200);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+2),false);await page.locator('#gfmStepPreview').screenshot({path:out+`/manual-gains-${name}.png`});}checks.push('desktop/mobile layout');
+ assert.deepEqual(errors,[]);writeFileSync(out+'/manual-browser.json',JSON.stringify({passed:true,checks,errors},null,2));console.log(`GFM manual checks: ${checks.length} passed.`);
+} catch(error){writeFileSync(out+'/manual-browser.json',JSON.stringify({passed:false,checks,errors,error:error.message},null,2));throw error;}finally{await browser.close();server.close();}

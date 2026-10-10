@@ -1,4 +1,6 @@
 /** Bounded beam search, not a globally optimal tuner. No input/project mutation. */
+import {gflDqModel,dqDefaults} from './gfl-dq-model.js';
+import {analyzeGflDq} from './gfl-dq-analysis.js';
 import {loopResponse} from './gfl-frequency.js';
 import {closedLoopPolynomials,isHurwitz} from './gfl-autotune.js';
 import {modelFacts,validateModelFacts,validateTuningRequest} from './gfl-model-input.js';
@@ -43,6 +45,14 @@ export function searchGflCandidates(input,rawRequest={},baselineGains=null,optio
  const result={policyId,policyVersion:1,inputStatus:'valid',searchStatus:'notRun',targetStatus:'notSpecified',request,candidates:[],probes:[],rejections:{},diagnostics:[],budget:{evaluations:0,maxEvaluations:options.maxEvaluations??18000,maxMilliseconds:options.maxMilliseconds??25000},searchRange:null};
  if(!check.valid)return {...result,searchStatus:'invalidRequest',diagnostics:check.errors.map(e=>({code:'invalid-target',severity:'error',...e}))};
  try{validateModelFacts(input);}catch(error){return {...result,inputStatus:'invalid',searchStatus:'notRun',diagnostics:[{code:'invalid-model',severity:'error',message:error.message}]};}
+ const dqSettings={...dqDefaults,...options.dqSettings};
+ result.dqScreening={enabled:dqSettings.enabled,evaluated:0,accepted:0,rejected:0,unverified:0,maxEvaluations:options.maxDqEvaluations??64,configuration:dqSettings,scope:'dq-constrained scalar search; scalar performance ranking; no MIMO optimization or robustness guarantee'};
+ if(dqSettings.enabled){
+  try{
+   gflDqModel(input,unit(),dqSettings); // Validate topology/settings once before the expensive scalar search.
+   if(input.delaySamples!==0)throw Error('非零延时仅有 Padé 近似；不能生成已完成 PLL/dq 校核的推荐候选。');
+  }catch(error){return {...result,diagnostics:[{code:'dq-unavailable',severity:'error',message:error.message}]};}
+ }
  const p=modelFacts(input),maxFrequency=p.fs/10,minFrequency=request.mode==='target'?Math.min(.01,request.fi/50,request.fp/50):.01;
  result.searchRange={minimumHz:minFrequency,maximumInnerHz:maxFrequency,zeroRatio:[.01,10],beamWidth:options.maxInner??8,globallyOptimal:false};
  const ratios=[...new Set([...logGrid(.01,10,13),.05,.2,5])].sort((a,b)=>a-b),cache=new Map(),all=[];
@@ -88,7 +98,19 @@ export function searchGflCandidates(input,rawRequest={},baselineGains=null,optio
   const verified=evaluation.stability.status==='stable'&&keys.every(k=>evaluation.loops[k].step.status==='ok'),tc=targetCheck(evaluation,request);
   if(p.delaySamples===0&&!verified){reject('step-unresolved');return;}
   const speed=verified?Math.max(...keys.map(k=>evaluation.loops[k].step.settlingTimeSeconds)):Infinity,overshoot=verified?Math.max(...keys.map(k=>evaluation.loops[k].step.overshootPercent)):Infinity,minMargin=Math.min(...keys.map(k=>evaluation.loops[k].minMargin));
-  all.push({id:isBaseline?'baseline':`candidate-${all.length+1}`,isBaseline,gains:structuredClone(g),evaluation,verified,requirementsMet:verified&&tc.accepted,targetStatus:verified?tc.targetStatus:'notSatisfied',unmet:verified?tc.unmet:[...tc.unmet,'延时模型未完成稳定性/时域验证'],speed,overshoot,minMargin});
+  let dqVerification=null;
+  if(dqSettings.enabled){
+   if(result.dqScreening.evaluated>=result.dqScreening.maxEvaluations)throw Error('budgetExceeded');
+   tick();result.dqScreening.evaluated++;
+   options.onProgress?.({evaluations:result.budget.evaluations,phase:'PLL/dq 联立筛选',dqEvaluations:result.dqScreening.evaluated});
+   try{
+    const dq=analyzeGflDq(p,g,dqSettings,{includeSeries:false});
+    dqVerification={status:dq.applicationEligible?'stable':dq.poleStatus,alpha:dq.alpha,version:dq.model.version,configuration:{...dqSettings}};
+    if(!dq.applicationEligible){result.dqScreening.rejected++;reject('dq-'+dq.poleStatus);return;}
+   }catch(error){result.dqScreening.unverified++;reject('dq-unverified');if(!result.diagnostics.some(d=>d.code==='dq-unverified'))result.diagnostics.push({code:'dq-unverified',severity:'warning',message:'部分候选的联立计算未完成，不能视为不稳定：'+error.message});return;}
+   result.dqScreening.accepted++;
+  }
+  all.push({dqVerification,id:isBaseline?'baseline':`candidate-${all.length+1}`,isBaseline,gains:structuredClone(g),evaluation,verified,requirementsMet:verified&&tc.accepted,targetStatus:verified?tc.targetStatus:'notSatisfied',unmet:verified?tc.unmet:[...tc.unmet,'延时模型未完成稳定性/时域验证'],speed,overshoot,minMargin});
  }
  try{
   const initial=unit(),inner=screen('d',initial,maxFrequency),beam=diverse(inner,options.maxInner??8,request.mode==='target'?request.fi:null);
@@ -114,6 +136,7 @@ export function searchGflCandidates(input,rawRequest={},baselineGains=null,optio
  const selected=[];const take=c=>{if(c&&!selected.includes(c)&&selected.length<3)selected.push(c);};take(front[0]);take([...front].sort((a,b)=>a.speed-b.speed)[0]);take([...front].sort((a,b)=>a.overshoot-b.overshoot||b.minMargin-a.minMargin)[0]);for(const c of front)take(c);
  result.candidates=selected;result.targetStatus=selected.some(c=>c.targetStatus==='satisfied')?'satisfied':selected.some(c=>c.targetStatus==='partiallySatisfied')?'partiallySatisfied':request.mode==='automatic'&&request.maxOvershootPercent===null&&request.maxSettlingSeconds===null?'notSpecified':selected.some(c=>c.requirementsMet)?'satisfied':'notSatisfied';
  if(['budgetExceeded','cancelled','numericalFailure'].includes(result.searchStatus)){result.candidates.forEach(c=>{c.incompleteSearch=true;});result.targetStatus='notSatisfied';}
+ if(dqSettings.enabled&&result.searchStatus==='budgetExceeded')result.diagnostics.push({code:'dq-budget',severity:'warning',message:'搜索预算耗尽；未评估部分不代表不稳定，不能据此认定无可行解。'});
  result.budget.elapsedMilliseconds=performance.now()-started;result.budget.completedCandidates=all.length;
  result.diagnostics.push(...diagnoseGfl(input,request,baselineEvaluation,result));
  return result;

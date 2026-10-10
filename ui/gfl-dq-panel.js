@@ -23,7 +23,7 @@ export function mountGflDqPanel(host,{onSettings,onState}){
  <p>归一化 SRF PLL：e=vq/|v|，Δω=Kp·e+ξ，dξ/dt=Ki·e；Kp=2ζ(2πfn)，Ki=(2πfn)²。fn 是二阶环特征参数，不直接等于 0 dB 交越或 −3 dB 带宽。20 Hz/0.707 是可编辑参考初值，必须核对真实控制器。</p>
  <p>基于实际运行 PCC P/Q 求高电压支路工作点；名义电网源为 1 pu，电流方向为逆变器向电网。支持单逆变器、正 Lf/Lg/C、串联 Rc 的三相平衡 LCL 等效。保留旋转 dq 交叉项、滤波解耦残余、PLL 坐标变化及选中的两外环，使用运行点 Jacobian A/B/C/D。</p>
  <p>Vdc 模式采用独立 DC 电容＋恒输入功率、理想 DC 电压归一化的电压执行器，不是画布中理想电压源钳位。显式延时大于零时使用一阶 Padé，仅作近似分析；不会把该近似通过当成精确已验证推荐。fs、PWM 频率不自动变成额外延时；不模拟离散 PI、开关、死区、限流、饱和、负序、故障或保护。</p>
- <p>原候选生成器仍是标量搜索。启用后，应用候选需要额外通过此 dq 模型的零延时校核；找不到通过的候选不代表全局不可行。闭环交叉通道没有独立的“PM=60°”解释。</p>
+ <p>候选生成仍使用标量搜索与性能排序。启用后，候选池先经过此 dq 模型的零延时稳定性筛选，再选出展示候选；应用时再次校核。不是 MIMO 优化或稳健性保证；找不到通过的候选不代表全局不可行。闭环交叉通道没有独立的“PM=60°”解释。</p>
  <p>依据：<a href="https://imperix.com/doc/implementation/synchronous-reference-frame-pll" target="_blank" rel="noopener noreferrer">imperix SRF PLL</a>；<a href="https://imperix.com/doc/implementation/vector-current-control" target="_blank" rel="noopener noreferrer">dq 电流控制参考</a>。这是项目按声明方程实现的工程参考模型，不是 IEEE 2800 认证模型或任意厂商的通用模型。</p>
  </details></div>`;
  const q=id=>host.querySelector('#'+id);let model=null,data=null,busy=false,error='',dead=false,frame=null;const widths=new WeakMap();

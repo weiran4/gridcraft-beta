@@ -6,9 +6,9 @@ import {serializeProject,parseProject} from '../project/model.js';
 test('GFM explicit fact edit preserves PI and merges an unrelated remote update',async()=>{
  const project=demo('gfm480');project.extensions.gfmPi={GFM1:{considerScr:true}};let raw=serializeProject(project);
  const elements=new Map(),handlers={},windowHandlers={};
- function element(id){if(!elements.has(id))elements.set(id,{id,dataset:{},classList:{add(){}},addEventListener(){},querySelector:selector=>element(selector.startsWith('#')?selector.slice(1):selector),querySelectorAll:()=>[],replaceChildren(){},disabled:false,value:id==='bodeMode'?'open':'',innerHTML:'',textContent:'',setAttribute(){},removeAttribute(){},getAttribute(){return null;},checkValidity(){return true;}});return elements.get(id);}
+ function element(id){if(!elements.has(id))elements.set(id,{id,dataset:{},classList:{add(){}},addEventListener(){},querySelector:selector=>element(selector.startsWith('#')?selector.slice(1):selector),querySelectorAll:()=>[],replaceChildren(){},before(){},append(){},remove(){},disabled:false,value:id==='bodeMode'?'open':'',innerHTML:'',textContent:'',setAttribute(){},removeAttribute(){},getAttribute(){return null;},checkValidity(){return true;}});return elements.get(id);}
  const controls=['retune','exportPi','bodeMode'].map(element);
- globalThis.document={getElementById:element,querySelectorAll:selector=>selector==='input,button,select'?controls:[],addEventListener:(type,handler)=>handlers[type]=handler};
+ globalThis.document={createElement:tag=>element(tag+elements.size),getElementById:element,querySelectorAll:selector=>selector==='input,button,select'?controls:[],addEventListener:(type,handler)=>handlers[type]=handler};
  globalThis.window={addEventListener:(type,handler)=>windowHandlers[type]=handler};
  globalThis.location={search:'?ibr=GFM1'};
  globalThis.localStorage={getItem:()=>raw,setItem:(_,value)=>raw=value};

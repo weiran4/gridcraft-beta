@@ -49,15 +49,32 @@ try{
  const order=exported.result.current.order;await page.locator('#dqPllEnabled').selectOption('false');await ready('gflDqPanel');exported=await getDownload();assert.equal(exported.result.current.order,order-2);assert.match(await page.locator('#dqPllSummary').innerText(),/不等于理想瞬时/);checks.push('fixed-angle comparison removes PLL states, labelled accurately');
  await page.locator('#dqPllEnabled').selectOption('true');await edit('#dqFrequency',20);await ready('gflDqPanel');
  await page.locator('#advisorGenerate').click();await page.waitForFunction(()=>!document.getElementById('advisorGenerate').disabled,{},{timeout:70000});await ready('gflDqPanel');exported=await getDownload();
- assert.equal(exported.result.candidate.status,'ok');assert.equal(exported.result.candidate.poleStatus,'unstable');assert.equal(await page.locator('#advisorApply').isDisabled(),true);assert.deepEqual((await saved()).extensions.gflPi.PV1.gains,original);checks.push('scalar success cannot override an unstable enabled dq/PLL application gate');
+ assert.match(await page.locator('#advisorStatus').innerText(),/联立筛选/);
+ if(exported.result.candidate.status==='ok')assert.equal(exported.result.candidate.poleStatus,'stable');
+ else assert.equal(await page.locator('#advisorApply').isDisabled(),true);
+ assert.deepEqual((await saved()).extensions.gflPi.PV1.gains,original);checks.push('enabled automatic candidate pool is dq screened before final selection');
  await page.locator('#gflDqPanel').screenshot({path:dir+'/gfl-pll-dq-panel.png'});
- await page.locator('#dqEnabled').uncheck();assert.equal(await page.locator('#advisorApply').isEnabled(),true);await page.locator('#dqEnabled').check();await ready('gflDqPanel');checks.push('explicit opt-out restores legacy eligibility, not a silent fallback');
+ await page.locator('#dqEnabled').uncheck();assert.equal(await page.locator('#advisorApply').isDisabled(),true);await page.locator('#advisorGenerate').click();await page.waitForFunction(()=>!document.getElementById('advisorGenerate').disabled,{},{timeout:70000});assert.equal(await page.locator('#advisorApply').isEnabled(),true);await page.locator('#dqEnabled').check();await ready('gflDqPanel');assert.equal(await page.locator('#advisorApply').isDisabled(),true);checks.push('opt-out requires a fresh scalar search; PLL changes invalidate prior candidates');
  await page.locator('#dqDcModel').selectOption('rigid');await ready('gflDqPanel');assert.match(await page.locator('#dqCurrent').innerText(),/Vdc/);assert.equal(await page.locator('#advisorApply').isDisabled(),true);assert.ok(await page.locator('#bodePlot svg').count());await page.locator('#dqDcModel').selectOption('auto');await ready('gflDqPanel');checks.push('unsupported DC pairing is unassessed without clearing legacy Bode');
  await edit('#dqFrequency',0);await page.waitForFunction(()=>document.getElementById('gflDqPanel').dataset.state==='empty');assert.match(await page.locator('#dqStatus').innerText(),/PLL|正/);await edit('#dqFrequency',20);await ready('gflDqPanel');checks.push('invalid PLL setting clears stale result and recovers');
  await edit('#field-delaySamples',1);await ready('gflDqPanel');assert.match(await page.locator('#dqCurrent').innerText(),/Padé/);assert.equal(await page.locator('#advisorApply').isDisabled(),true);await edit('#field-delaySamples',0);await ready('gflDqPanel');checks.push('delay adds labelled Pade states without claiming exact verification');
  const other=await ctx.newPage();await other.goto(origin+'/gfl.html?ibr=PV1');await other.locator('#dqFrequency').waitFor();await other.locator('#dqFrequency').fill('25');await other.locator('#dqFrequency').dispatchEvent('change');await page.waitForFunction(()=>document.querySelector('#dqFrequency').value==='25');await ready('gflDqPanel');await other.close();checks.push('cross-tab PLL change is recomputed without overwriting the project');
  await page.reload();await ready('gflDqPanel');assert.equal(await page.locator('#dqEnabled').isChecked(),true);assert.equal(await page.locator('#dqFrequency').inputValue(),'25');assert.deepEqual((await saved()).extensions.gflPi.PV1.gains,original);checks.push('reloading preserves PLL configuration and full-precision current PI');
  await page.setViewportSize({width:390,height:844});await page.locator('#gflDqPanel').screenshot({path:dir+'/gfl-pll-dq-mobile.png'});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+2),false);checks.push('PLL/dq panel fits mobile width');
+ // Seed a historical application record, then change only PLL configuration.
+ await page.evaluate(async()=>{
+  const {readGflModelInput}=await import('/analysis/gfl-model-input.js');
+  const {tuningSnapshot}=await import('/project/gfl-tuning-state.js');
+  const p=JSON.parse(localStorage.getItem('gridcraft-v1')),s=p.extensions.gflPi.PV1;
+  s.dqAnalysis.frequencyHz=20;
+  s.advisor={...s.advisor,appliedMode:s.dMode+'/'+s.qMode,appliedGains:s.gains,factSnapshot:tuningSnapshot(readGflModelInput(p,'PV1',s).modelInput),dqVerification:{status:'stable',configuration:{...s.dqAnalysis}}};
+  localStorage.setItem('gridcraft-v1',JSON.stringify(p));
+ });
+ await page.reload();await ready('gflDqPanel');await edit('#dqFrequency',50);await ready('gflDqPanel');
+ const piDownload=page.waitForEvent('download');await page.locator('#exportPi').click();const piFile=await piDownload,pi=JSON.parse(readFileSync(await piFile.path(),'utf8'));
+ assert.equal(pi.dqAnalysis.configuration.frequencyHz,50);assert.equal(pi.dqAnalysis.historicalVerification.configuration.frequencyHz,20);
+ assert.equal(pi.dqAnalysis.evidence.status,'stale');assert.equal(pi.autoTuning.applicationEvidence.evaluationCurrent,true);
+ checks.push('PI export separates current PLL 50 Hz from historical 20 Hz approval; scalar evidence remains scoped');
  assert.deepEqual(errors,[]);checks.push('no browser page errors');
  writeFileSync(dir+'/pll-gfm-browser.json',JSON.stringify({passed:true,checks,errors},null,2));console.log('PLL and GFM step: '+checks.length+' flows passed.');
 }catch(error){writeFileSync(dir+'/pll-gfm-browser.json',JSON.stringify({passed:false,checks,errors,error:error.message,stack:error.stack},null,2));throw error;}

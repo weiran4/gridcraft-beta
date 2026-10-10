@@ -1,3 +1,4 @@
+import {listGfmManualCandidates,saveGfmManualCandidate,renameGfmManualCandidate,deleteGfmManualCandidate,applyGfmManualCandidate} from '../project/gfm-manual-candidates.js';
 import {gfmFacts,evaluateGfm,validateGfmMode,checkGfmRequirements} from '../analysis/gfm-tuning-advisor.js';
 import {validateTuningRequest} from '../analysis/gfl-model-input.js';
 import {readGfmAdvisor,gfmFactKeys,gfmAdvisorRequest,gfmSnapshot,saveGfmAdvisorSettings,switchGfmMode,applyGfmCandidate,restoreGfmCandidate} from '../project/gfm-advisor-state.js';
@@ -6,9 +7,7 @@ import {createTuningClient} from './gfl-tuning-client.js';
 import {gfmDiagram} from './gfm-diagram.js?v=scr1';
 import {analyzeGfmMode} from '../analysis/gfm-dynamics.js?v=scr1';
 import {gfmContext,gfmSettings,gfmModes,setGfmField} from '../project/gfm-settings.js?v=scr1';
-import {gfmSweep,gfmPolynomials,validateGfmGains} from '../analysis/gfm-pi.js?v=scr1';
-import {isHurwitz} from '../analysis/gfl-autotune.js?v=scr1';
-import {crossings} from '../analysis/gfl-frequency.js?v=outer1';
+import {gfmSweep,validateGfmGains} from '../analysis/gfm-pi.js?v=scr1';
 import {kiFromTi,tiFromKi} from '../analysis/pi-time.js?v=ti1';
 import {projectStore} from '../project/sync.js?v=sync1';
 import {parseProject,serializeProject} from '../project/model.js?v=transformer-rx3';
@@ -21,7 +20,7 @@ const targets=[['fs','控制步长 Ts','μs'],['delaySamples','纯延时 N × Ts
 const filters=[['filterPqMs','P/Q 时间常数','ms'],['filterVdcMs','Vdc 时间常数（预留）','ms'],['filterVoltageMs','交流电压时间常数','ms'],['filterCurrentMs','电感电流时间常数','ms'],['feedforwardCurrent','送网电流前馈 F','pu'],['feedforwardVoltage','电压前馈 av','pu']];
 const modeDefs={droop:[['mp','P–f 下垂','%'],['nq','Q–V 下垂','%']],vsg:[['h','虚拟惯量 H','s'],['d','频率阻尼 D','pu'],['nq','Q–V 下垂','%'],['kv','电压积分增益 Kv','s⁻¹']],sync:[['h','虚拟惯量 H','s'],['d','频率阻尼 D','pu'],['nq','Q–V 下垂','%'],['ke','励磁积分增益 Ke','s⁻¹']]};
 let project,id,settings,input,gains,tuning,coupled={},valid=false,busy=false,revision=0,pendingRemote=false;
-let bodeWidth=0;
+let bodeWidth=0,manualBode=null;
 let currentEvaluation=null,request=validateTuningRequest({}).request,advisorResult=null,selectedId=null,stale=false,advisorMessage='',advisor;
 const emptyGains=()=>Object.fromEntries(['d','q','P','Q'].map(k=>[k,{kp:0,ki:0}]));
 const activeSnapshot=()=>gfmSnapshot({input,settings,gains,request});
@@ -64,12 +63,7 @@ function plot(){
   $('bodePlot').textContent='尚无已保存 PI，不自动生成或覆盖。';$('validation').textContent='模型输入可用；当前模式尚未应用 PI。';$('error').textContent='';valid=true;$('exportPi').disabled=true;renderAdvisor();return;
  }
  validateGfmGains(gains);currentEvaluation=evaluateGfm(input,gains,settings.mode,settings.modes[settings.mode]);
- const sweep=gfmSweep(input,gains,$('bodeMode').value,1201),open=$('bodeMode').value==='open'?sweep:gfmSweep(input,gains,'open',1201);
- $('bodeLegend').innerHTML='';$('bodePlot').innerHTML=bodeLoopGrid(sweep,{}, {width:$('bodePlot').clientWidth||1200,columns:matchMedia('(max-width:900px)').matches?1:2,titles:{d:'d 轴电流环',q:'q 轴电流环',P:'d 轴电压环',Q:'q 轴电压环'}});
- const polys=input.delaySamples===0?gfmPolynomials(input,gains):null,stable=polys?Object.fromEntries(Object.entries(polys).map(([k,c])=>[k,isHurwitz(c)])):null;
- const good=stable&&Object.values(stable).every(Boolean);
- $('stability').textContent=stable?(good?'四个标量闭环通过 Routh 校核':'存在未通过 Routh 校核的闭环'):'含纯延时 · 未给出极点稳定性结论';$('stability').className=stable&&!good?'error':'small-note';
- $('metrics').innerHTML='<table><thead><tr><th>环路</th><th>Kp</th><th>Ti / s</th><th>交越 / Hz</th><th>裕度 / °</th><th>零延时 Routh</th></tr></thead><tbody>'+Object.entries(labels).map(([k,l])=>{const xs=crossings(open.series[k]),warn=xs.length!==1||xs.some(x=>x.margin<request.minMargin-.005)||stable?.[k]===false;return '<tr class="'+(warn?'warning':'')+'"><td>'+l+'</td><td>'+fmt(gains[k].kp)+'</td><td>'+(gains[k].ki?fmt(1/gains[k].ki):'∞')+'</td><td>'+(xs.length?xs.map(x=>fmt(x.frequency)).join(' / '):'频段内无交越')+'</td><td>'+(xs.length?xs.map(x=>fmt(x.margin)).join(' / '):'—')+'</td><td>'+(stable?(stable[k]?'通过':'未通过'):'未判定')+'</td></tr>';}).join('')+'</tbody></table>';
+ drawBode();
  const Z=input.voltageLL**2/input.ratedVA,Irms=input.ratedVA/(Math.sqrt(3)*input.voltageLL),ratio=Math.hypot(input.activePowerW,input.reactivePowerVar)/input.ratedVA;
  $('baseSummary').innerHTML='<span>Zb = '+fmt(Z)+' Ω</span><span>Ib,rms = '+fmt(Irms)+' A</span><span>电路 SCR（'+(settings.considerScr?'已纳入':'未纳入')+'） = '+fmt(input.scr)+'</span><span>局部理想 LC = '+fmt(1/(2*Math.PI*Math.sqrt(input.L*input.C)))+' Hz</span><span>Td = '+fmt(input.delaySamples*1e6/input.fs)+' μs</span>';
  const dyn=coupled[settings.mode],op=dyn?.op;
@@ -79,6 +73,19 @@ function plot(){
  $('validation').textContent='标量内环频响用于裕度校核；是否启用并网 dq 校核由 SCR 开关决定。';
  renderCoupled();
  $('error').textContent='';$('exportPi').disabled=false;valid=true;renderAdvisor();
+}
+
+function drawBode(){
+ const preview=$('bodePiSource').value==='comparison',evaluation=preview?manualBode?.evaluation:currentEvaluation;
+ const g=preview?manualBode?.gains:gains;
+ const sweep=preview?(evaluation?{min:evaluation.scan.min,max:evaluation.scan.max,series:$('bodeMode').value==='open'?evaluation.series:evaluation.closedSeries}:null):(gains&&input?gfmSweep(input,gains,$('bodeMode').value,1201):null);
+ $('bodeLegend').innerHTML='';
+ $('bodePlot').innerHTML=sweep?bodeLoopGrid(sweep,{}, {width:$('bodePlot').clientWidth||1200,columns:matchMedia('(max-width:900px)').matches?1:2,titles:{d:'d 轴电流环',q:'q 轴电流环',P:'d 轴电压环',Q:'q 轴电压环'}}):'尚无有效频响；正在计算或参数未配置。';
+ const scalar=evaluation?.scalarStability.status;
+ $('stability').textContent=(preview?'试调 PI · ':'当前 PI · ')+(evaluation?(input.delaySamples>0?'含纯延时 · 稳定性未验证':scalar==='stable'?'四个标量闭环通过极点校核':'存在未通过稳定性校核的闭环'):'尚未完成校核');
+ $('stability').className=!evaluation||scalar==='stable'?'small-note':'error';
+ $('bodeParameterStatus').textContent=preview?'当前展示：'+(manualBode?.name??'手动试调')+'（未应用）。控制框图与导出仍为当前 PI。':'当前展示：当前已应用 PI。';
+ $('metrics').innerHTML=evaluation?'<table><thead><tr><th>'+(preview?'试调控制环':'当前控制环')+'</th><th>Kp</th><th>Ti / s</th><th>交越 / Hz</th><th>裕度 / °</th><th>标量稳定性</th></tr></thead><tbody>'+Object.entries(labels).map(([k,l])=>{const loop=evaluation.loops[k],warn=loop.crossings.length!==1||loop.minMargin<request.minMargin-.005||loop.stability.status!=='stable';return '<tr class="'+(warn?'warning':'')+'"><td>'+l+'</td><td>'+fmt(g?.[k]?.kp)+'</td><td>'+(g?.[k]?.ki?fmt(1/g[k].ki):'∞')+'</td><td>'+(loop.crossings.map(x=>fmt(x.frequency)).join(' / ')||'频段内无交越')+'</td><td>'+fmt(loop.minMargin)+'</td><td>'+esc(({stable:'稳定',unstable:'不稳定',marginal:'临界',unverified:'未验证',numericalFailure:'数值校核未完成'})[loop.stability.status]??loop.stability.status)+'</td></tr>';}).join('')+'</tbody></table>':'';
 }
 
 function renderCoupled(){
@@ -125,7 +132,7 @@ async function load(p,saveAfter=false){try{
  }catch(e){project=p;settings=gfmSettings(p,id);gains=settings.gains;coupled={};try{renderInputs();renderGains();$('retune').disabled=false;}catch{}invalidate(e);}}
 function renderAdvisor(){
  if(!advisor||!settings)return;const undo=project?.extensions?.gfmPi?.[id]?.advisor?.undo;
- advisor.render({input,currentGains:gains,request,current:currentEvaluation,result:advisorResult,selectedId,busy:searchClient.busy,stale,message:advisorMessage,invalid:!valid,
+ advisor.render({input,settings,manualCandidates:listGfmManualCandidates(project,id,settings.mode),currentGains:gains,request,current:currentEvaluation,result:advisorResult,selectedId,busy:searchClient.busy,stale,message:advisorMessage,invalid:!valid,
   canRestore:Boolean(undo&&undo.mode===settings.mode),modeName:gfmModes[settings.mode]});
 }
 function generateCandidates(){
@@ -143,7 +150,21 @@ async function applySelected(){try{
  await receive(shared.write(next));advisorMessage='已应用所选 GFM 候选；仅更新 PI，不改变成网或电气参数。';renderAdvisor();
  }catch(error){stale=true;advisorMessage=error.message;renderAdvisor();}}
 async function restoreSelected(){try{const next=restoreGfmCandidate(shared.read()??project,id);await receive(shared.write(next));advisorMessage='已恢复应用前 PI；电气和成网参数未回滚。';renderAdvisor();}catch(error){advisorMessage=error.message;renderAdvisor();}}
+function saveManual(value){
+ const latest=shared.read()??project;
+ if(value.contextKey!==gfmSnapshot(readGfmAdvisor(latest,id)))throw Error('模型或当前 PI 已变化，请刷新试调后再保存。');
+ const candidateId='manual-'+crypto.randomUUID();
+ project=shared.write(saveGfmManualCandidate(latest,id,{id:candidateId,name:value.name,gains:value.gains}));renderAdvisor();return candidateId;
+}
+async function applyManual(candidate,contextKey){try{
+ const latest=shared.read()??project,next=applyGfmManualCandidate(latest,id,candidate,contextKey);
+ await receive(shared.write(next));advisorMessage='已应用手动试调；仅更新当前成网模式的 PI。';renderAdvisor();
+ }catch(error){advisorMessage=error.message;renderAdvisor();}}
 advisor=mountGfmTuningPanel($('gfmAdvisor'),{
+ onManualStart:()=>{if(searchClient.busy)searchClient.cancel();},onManualComparison:value=>{manualBode=value.active?value:null;$('bodePiSource').value=value.active?'comparison':'current';if(valid)drawBode();},
+ onManualSave:saveManual,onManualApply:applyManual,
+ onManualRename:(candidateId,name)=>{project=shared.write(renameGfmManualCandidate(shared.read()??project,id,candidateId,name));renderAdvisor();},
+ onManualDelete:candidateId=>{project=shared.write(deleteGfmManualCandidate(shared.read()??project,id,candidateId));renderAdvisor();},
  getRequest:()=>request,onRequest:next=>{request=next;searchClient.invalidate('整定目标已改变；当前 PI 不变。');save();renderAdvisor();},
  onAnalyze:()=>apply(structuredClone(project),structuredClone(settings),gains,false,false).catch(invalidate),
  onSearch:generateCandidates,onCancel:()=>searchClient.cancel(),onSelect:id=>{selectedId=id;renderAdvisor();},onApply:applySelected,onRestore:restoreSelected
@@ -167,8 +188,8 @@ document.addEventListener('change',async e=>{
 document.addEventListener('click',async e=>{const mode=e.target.closest('[data-mode]')?.dataset.mode;if(!mode||busy)return;try{checkFields();const next=switchGfmMode(shared.read()??project,id,mode);await receive(shared.write(next));}catch(err){invalidate(err);}});
 const bodeResizeObserver=typeof ResizeObserver==='undefined'?null:new ResizeObserver(entries=>{const width=entries[0]?.contentRect.width??0;if(width>0&&Math.abs(width-bodeWidth)>1){bodeWidth=width;if(valid&&!busy&&gains)try{plot();}catch(e){invalidate(e);}}});bodeResizeObserver?.observe($('bodePlot'));
 $('retune').onclick=generateCandidates;
-$('bodeMode').onchange=()=>{if(valid&&!busy)try{plot();}catch(e){invalidate(e);}};
-$('exportPi').onclick=()=>{if(!valid||busy||!gains)return;const parameters=Object.fromEntries(Object.entries(labels).map(([k,l])=>[k,{label:l,kp:gains[k].kp,tiSeconds:gains[k].ki?1/gains[k].ki:null,integratorEnabled:gains[k].ki>0,kiPerSecond:gains[k].ki}]));const data={schema:'gridcraft-gfm-pi-v3',project:project.name,ibrId:id,mode:settings.mode,modeParameters:settings.modes,inputs:input,parameters,piForm:'Kp + 1/(Ti*s)',convention:{current:'converter-to-grid',park:'d=cos,q=-sin',error:'reference-minus-measured',piOutputSign:1},analysisScope:settings.considerScr?'Single converter, RC and grid RL; coupled dq linearization about high-voltage equilibrium; rigid DC; no saturation or current limits; synchronverter torque/flux variant with cascaded inner loops':'Local scalar Lf/RC, ideal voltage feedforward and decoupling, fixed load current; grid/forming dynamics excluded',coupledResults:coupled,selectedModeStable:settings.considerScr?coupled[settings.mode]?.stable===true:null,manual:settings.manual,currentEvaluation,autoTuning:{...(project.extensions?.gfmPi?.[id]?.advisor??{}),request,searchStatus:advisorResult?.searchStatus??'notRun',candidateStatus:stale?'stale':'preview',storedGainsPreserved:true}};const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='gfm-pi-'+id+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
+$('bodeMode').onchange=$('bodePiSource').onchange=()=>{if(valid&&!busy)try{drawBode();}catch(e){invalidate(e);}};
+$('exportPi').onclick=()=>{if(!valid||busy||!gains)return;const parameters=Object.fromEntries(Object.entries(labels).map(([k,l])=>[k,{label:l,kp:gains[k].kp,tiSeconds:gains[k].ki?1/gains[k].ki:null,integratorEnabled:gains[k].ki>0,kiPerSecond:gains[k].ki}]));const data={schema:'gridcraft-gfm-pi-v3',manualCandidates:listGfmManualCandidates(project,id,settings.mode),project:project.name,ibrId:id,mode:settings.mode,modeParameters:settings.modes,inputs:input,parameters,piForm:'Kp + 1/(Ti*s)',convention:{current:'converter-to-grid',park:'d=cos,q=-sin',error:'reference-minus-measured',piOutputSign:1},analysisScope:settings.considerScr?'Single converter, RC and grid RL; coupled dq linearization about high-voltage equilibrium; rigid DC; no saturation or current limits; synchronverter torque/flux variant with cascaded inner loops':'Local scalar Lf/RC, ideal voltage feedforward and decoupling, fixed load current; grid/forming dynamics excluded',coupledResults:coupled,selectedModeStable:settings.considerScr?coupled[settings.mode]?.stable===true:null,manual:settings.manual,currentEvaluation,autoTuning:{...(project.extensions?.gfmPi?.[id]?.advisor??{}),request,searchStatus:advisorResult?.searchStatus??'notRun',candidateStatus:stale?'stale':'preview',storedGainsPreserved:true}};const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='gfm-pi-'+id+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
 try{const p=shared.read();if(!p)throw Error('请先在电路页面载入 BESS_GFM_demo，再选择 GFM 的 PI 参数设计。');shared.accept(p);id=new URLSearchParams(location.search).get('ibr');await load(p);}catch(e){invalidate(e);}
 window.addEventListener('storage',e=>{if(e.key===key)receive(shared.read()).catch(invalidate);});
 window.addEventListener('pageshow',()=>receive(shared.read()).catch(invalidate));

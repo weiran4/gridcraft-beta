@@ -6,7 +6,7 @@ import {tiFromKi} from '../analysis/pi-time.js';
 import {gainSliderMax} from './gain-slider.js';
 const keys=['d','q','P','Q'],zero=()=>Object.fromEntries(keys.map(k=>[k,{kp:0,ki:0}]));
 export const manualContextKey=m=>tuningSnapshot({input:m.modelInput,currentGains:m.currentGains??null,request:m.request});
-export function mountManualWorkspace(host,callbacks){
+export function mountManualWorkspace(host,callbacks,adapter={}){
  const bar=document.createElement('section');bar.id='manualWorkspace';bar.className='manual-workspace';
  bar.innerHTML=`<div class="manual-controls"><strong>手动试调 · 不覆盖当前 PI</strong><label>积分参数 <select id="manualIntegralForm"><option value="ki">Kp / Ki</option><option value="ti">Kp / Ti</option></select></label><label class="manual-link"><input id="manualLinkedDq" type="checkbox">同步调整 d/q 电流环参数</label><button id="manualReset">恢复到当前 PI</button><button id="manualApply" class="primary" disabled>应用试调参数</button></div>
  <div class="manual-names"><label>方案名称<input id="manualName" maxlength="80" placeholder="例如：外环更稳 · 方案 A"></label><button id="manualSave">暂存为命名候选</button><button id="manualRename" disabled>重命名所选</button><button id="manualDelete" disabled>删除所选</button></div>
@@ -20,10 +20,10 @@ export function mountManualWorkspace(host,callbacks){
  let model=null,auto=null,draft=null,result=null,busy=false,message='',invalid='',factsKey=null,seenSelection=null,forceSelection=false,framePending=false,destroyed=false,evalKey=null;
  const display=(g,k,f)=>f==='ki'&&q('manualIntegralForm').value==='ti'?tiFromKi(g[k].ki):g[k][f];
  const base=()=>draft?.gains??(!model?.stale?auto?.gains:null)??model?.currentGains??zero();
- const contextKey=()=>manualContextKey(model);
+ const contextKey=()=>adapter.contextKey?adapter.contextKey(model):manualContextKey(model);
  const notify=()=>{if(framePending||destroyed)return;framePending=true;queueMicrotask(()=>{framePending=false;if(!destroyed)callbacks.onChange();});};
- function comparison(){callbacks.onComparison?.({active:!!draft,name:draft?.name??'手动试调（未应用）',evaluation:!invalid&&!busy?result?.evaluation:null});}
- const client=createStepClient({workerFactory:()=>new Worker(new URL('./gfl-manual-worker.js',import.meta.url),{type:'module'}),onEvent:e=>{
+ function comparison(){callbacks.onComparison?.({active:!!draft,name:draft?.name??'手动试调（未应用）',gains:draft?.gains??null,evaluation:!invalid&&!busy?result?.evaluation:null});}
+ const client=createStepClient({workerFactory:adapter.workerFactory??(()=>new Worker(new URL('./gfl-manual-worker.js',import.meta.url),{type:'module'})),onEvent:e=>{
   if(e.type==='loading'){busy=true;result=null;}
   else if(e.type==='result'){busy=false;result=e.result;}
   else{busy=false;result=null;if(e.type==='error')message=e.message;}
@@ -31,7 +31,8 @@ export function mountManualWorkspace(host,callbacks){
  }});
  function evaluate(){
   if(!draft||invalid||model?.invalid||!model?.modelInput){if(evalKey!==null){evalKey=null;client.clear();}return;}
-  const payload={input:model.modelInput,gains:draft.gains,request:model.request,record:{...(draft.record??{}),name:draft.name}};
+  const record={...(draft.record??{}),name:draft.name};
+  const payload=adapter.payload?adapter.payload(model,draft.gains,record):{input:model.modelInput,gains:draft.gains,request:model.request,record};
   const token=JSON.stringify(payload);if(token===evalKey)return;evalKey=token;client.update(payload);
  }
  function syncFields({resetScale=false,fromSlider=null}={}){
@@ -73,7 +74,7 @@ export function mountManualWorkspace(host,callbacks){
  q('manualApply').onclick=()=>{if(!result?.requirementsMet||busy||invalid)return;callbacks.onApply(result,contextKey());};
  return {
   sync(next,selectedAuto){
-   const key=tuningSnapshot({input:next.modelInput,currentGains:next.currentGains??null,labels:next.labels});
+   const key=adapter.factsKey?adapter.factsKey(next):tuningSnapshot({input:next.modelInput,currentGains:next.currentGains??null,labels:next.labels});
    const contextChanged=factsKey!==null&&key!==factsKey;model=next;auto=selectedAuto;
    if(contextChanged){draft=null;result=null;evalKey=null;invalid='';message='当前模型或已应用 PI 已变化；旧试调已清除，命名方案仍保留。';client.clear();Object.values(numbers).forEach(n=>n.removeAttribute('aria-invalid'));comparison();}
    factsKey=key;

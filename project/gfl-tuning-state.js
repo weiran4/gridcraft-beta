@@ -1,3 +1,4 @@
+import {dqDefaults} from '../analysis/gfl-dq-model.js';
 /** Candidate transactions never rewrite electrical facts or unrelated extensions. */
 import {validateGains} from '../analysis/gfl-frequency.js';
 const copy=v=>v===undefined?undefined:structuredClone(v);
@@ -43,7 +44,15 @@ export function restoreAppliedGains(project,ibrId,state){
  return next;
 }
 export function applicationEvidence(stored={},facts){
- const a=stored.advisor;if(!a?.appliedGains)return {status:stored.gains?'baseline':'unapplied',evaluationCurrent:false};
+ const a=stored.advisor;if(!a?.appliedGains)return {status:stored.gains?'baseline':'unapplied',evaluationCurrent:false,dq:{status:'unassessed',evaluationCurrent:false}};
  const current=a.appliedMode===mode(stored)&&equal(stored.gains,a.appliedGains)&&a.factSnapshot===tuningSnapshot(facts);
- return {status:current?'applied':'stale',evaluationCurrent:current};
+ const configuration={...dqDefaults,...stored.dqAnalysis},historical=a.dqVerification;
+ const dqCurrent=current&&historical?.status==='stable'&&configuration.enabled&&tuningSnapshot(configuration)===tuningSnapshot({...dqDefaults,...historical.configuration});
+ const dq={status:!configuration.enabled?'notEnabled':dqCurrent?'applied':historical?.status==='stable'?'stale':'unassessed',evaluationCurrent:!!dqCurrent};
+ return {status:current?'applied':'stale',evaluationCurrent:current,dq};
+}
+
+/** Export current model options separately from the historical application record. */
+export function gflDqEvidenceExport(stored={},facts){
+ return {configuration:copy({...dqDefaults,...stored.dqAnalysis}),evidence:applicationEvidence(stored,facts).dq,historicalVerification:copy(stored.advisor?.dqVerification)??null};
 }
