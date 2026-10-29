@@ -1,3 +1,4 @@
+import {mountInputSources} from './input-sources.js';
 import {operatingSummary} from './operating-summary.js?v=pq1';
 import {pwmWorkbenchMarkup,mountPwmWorkbench} from './pwm-workbench.js?v=pq1';
 import {convertHarmonicBasis} from '../analysis/pwm-spectrum.js?v=pwm3';
@@ -45,8 +46,9 @@ export function mountFilterDesign(host,project,c,save,apply){
  host.querySelector('[data-filter="harmonicBasis"]').value=settings.harmonicBasis;
  for(const key of ['amplitudeSource','modulationMode','currentMode'])host.querySelector('[data-filter="'+key+'"]').value=settings[key];
  let basisBefore=settings.harmonicBasis;
+ const sources=mountInputSources(host,{selector:'input[data-filter]',key:el=>el.dataset.filter,stored:c.extensions?.filterDesign||{},suggestions:defaults,linked:(el,k)=>el.disabled?'derived':k==='selectedMh'&&c.extensions?.filterDesign?.selectedMh==null?'project':null});
  const inputs=[...host.querySelectorAll('[data-filter]')],result=host.querySelector('[data-filter-result]'),button=host.querySelector('[data-filter-apply]'),mid=host.querySelector('[data-filter-mid]');
- const read=()=>Object.fromEntries(inputs.map(el=>[el.dataset.filter,el.tagName==='SELECT'?el.value:el.value===''?null:el.valueAsNumber]));
+ const read=()=>({...Object.fromEntries(inputs.map(el=>[el.dataset.filter,el.tagName==='SELECT'?el.value:el.value===''?null:el.valueAsNumber])),_inputSources:sources.read()});
  const calculate=()=>{const values=read(),valid=Number.isFinite(values.selectedMh)&&values.selectedMh>0;const r=designFilterInductor({...ctx,...values,L:valid?values.selectedMh/1000:ctx.L});if(!valid){r.ripplePercent=null;r.dropPercent=null;r.currentPass=null;r.canApply=false;}return {values,r};};
  const mark=(r)=>markDesignInputs(host,'data-filter',designInputIssues('l',read(),r,ctx.frequencyHz));
  const updatePwm=mountPwmWorkbench(host,ctx,order=>{
@@ -55,6 +57,7 @@ export function mountFilterDesign(host,project,c,save,apply){
  });
  let initialFftSelection=settings.fftSelection;
  function update(){
+  queueMicrotask(sources.refresh);
   let current=read();
   const fft=updatePwm({...current,fftSelection:initialFftSelection??current.fftSelection});initialFftSelection=null;
   const fftMode=current.amplitudeSource==='fft';
@@ -79,7 +82,7 @@ export function mountFilterDesign(host,project,c,save,apply){
   }catch(e){host.querySelector('[data-filter-selection-range]').textContent='请补全有效参数以计算选值区间。';updateVariables(read(),null);result.innerHTML='<div class="note error">'+esc(e.message)+'</div>';button.disabled=true;mid.disabled=true;mid.textContent='使用中间值';button.textContent='应用到此 '+c.type.toUpperCase()+' 的 Lf';}
  }
  inputs.forEach(el=>{el.oninput=()=>{if(el.dataset.filter==='harmonicBasis'){const a=host.querySelector('[data-filter="harmonicPu"]');const converted=convertHarmonicBasis(a.value===''?null:a.valueAsNumber,basisBefore,el.value);a.value=converted??'';basisBefore=el.value;}host.querySelector('[data-filter-applied]').textContent='';update();};el.onchange=()=>{update();const values=read();if(Object.values(values).some(v=>typeof v==='number'&&!Number.isFinite(v)))return;save(values);};});
- mid.onclick=()=>{try{const {values,r}=calculate();if(r.midpointH!=null){const selectedMh=r.midpointH*1000;host.querySelector('[data-filter="selectedMh"]').value=selectedMh;save({...values,selectedMh});host.querySelector('[data-filter-applied]').textContent='';update();}}catch{}};
+ mid.onclick=()=>{try{const {values,r}=calculate();if(r.midpointH!=null){const selectedMh=r.midpointH*1000;host.querySelector('[data-filter="selectedMh"]').value=selectedMh;save({...values,selectedMh});host.querySelector('[data-filter-applied]').textContent='';sources.set('selectedMh','derived');update();}}catch{}};
  button.onclick=()=>{try{const {values,r}=calculate(),l=values.selectedMh/1000;if(r.canApply&&Number.isFinite(l)&&l>0){apply(l,values);ctx.L=l;update();const status=host.querySelector('[data-filter-applied]');status.classList.toggle('constraint-exceeded',r.feasible===false);status.textContent='已应用'+(r.feasible===false?'折中电感':'')+'到 '+c.name+'，拓扑已同步。'+(r.feasible===false?'实际比例仍有超限，请查看红色结果。':'');}}catch{update();}};
  update();
 }

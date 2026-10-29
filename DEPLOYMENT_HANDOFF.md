@@ -5,13 +5,14 @@
 - 独立项目：本仓库根目录
 - **直接上传目录：`dist/`**，上传其中的内容，不要再额外包一层 dist。
 - GitHub：`https://github.com/weiran4/gridcraft-beta`。
+- 2026-10-28 更新：通用 GFM 并网/孤岛结构诊断、GFL 独立离线分析、RC 网络谐波校核、输入建议值与来源显示；原 demo 保留。
 - 当前交付：`main` 分支最新提交，包含 GFM 内环 PI、PCC 频率响应及独立 PQ 能力图。界面版本仍为 `0.2.0-beta.1`；旧标签 `v0.2.0-beta.1` 不含本次更新，请勿按旧标签部署。
 
 ## 部署方法
 
 将 dist 内容作为普通 HTTPS 静态站点发布，或挂到现有网站的 `/tools/gridcraft-beta/` 子路径。
 
-从 GitHub 拉取时，执行 `npm run build`，发布目录填 `dist`；无需安装依赖，Node 只运行文件复制脚本。也可以直接复制允许发布的文件：index.html、gfl.html、gfm.html、pcc.html、pq.html、ui/、analysis/、components/、core/、project/、examples/。
+从 GitHub 拉取时，执行 `npm run build`，发布目录填 `dist`；无需安装依赖，Node 只运行文件复制脚本。也可以直接复制允许发布的文件：index.html、gfl.html、gfm.html、pcc.html、pq.html、structure.html、offline.html、release.json、ui/、analysis/、components/、core/、project/、examples/。
 
 **不需要 Python 后端、Node 服务、API 路由、数据库、Matlab、Simulink、Docker 或服务器函数。** 不要把 `start.bat` / `npm start` 配成线上服务；它们仅用于本地预览。
 
@@ -20,7 +21,7 @@
 - 正确提供 HTML、CSS、JS MIME 类型；ES 模块要通过 HTTP(S) 加载，不能用 file:// 双击代替网页服务。
 - 保留目录和查询字符串；不存在的 JS 请求应返回 404，不要把所有路径重写成 index.html。
 - 可以使用相对基路径，勿将资源路径统一改成站点根 `/`。
-- HTML 和 JS/CSS 建议重新验证缓存（例如 Cache-Control: no-cache），当前并非全文件内容哈希发布。
+- HTML 和 JS/CSS 建议重新验证缓存（例如 Cache-Control: no-cache），构建为所有模块引用加入同一发布指纹，release.json 记录源提交与逐文件 SHA256；不要混用不同构建产物。
 - 不要公开 `.git`、docs、tests、scripts、日志或开发配置；发布 dist 已自动隔离这些内容。
 - 不使用外部字体、CDN、跟踪或在线计算接口。SVG/MathML 中的 w3.org 字符串是命名空间，不是网络请求。
 - 工具包含动态样式和 SVG foreignObject；若现有网站有严格 CSP，请先做实测，不要未经验证加入会阻止界面渲染的策略。
@@ -42,9 +43,11 @@
 7. 载入 BESS_GFM_demo，点击 GFM 的 PI 参数设计；四个 PI、滤波联动、三模式参数切换正常，刷新后保留。
 8. JSON 保存和导入、PI 导出可用；上线地址及 Git 提交回报用户。
 
-GFM 当前验证的是固定成网给定、理想 dq 解耦的标量内环模型，含单 RC 与径向电网 R/L；三种成网外环仅配置/展示，不包含整体稳定性认证。不要在部署时修改计算公式或移除模型范围说明。详见 docs/gfm-pi-design.md。
+GFM 主页面保留标量内环和可选并网 dq 分析；structure.html 提供独立的完整成网外层、并网/孤岛固定工作点诊断。它不模拟启动、合闸、限流或开关。RC 谐波曲线为无源网络传递比例，不等于实际纹波或闭环稳定认证。不要在部署时修改方程或移除范围说明。详见 docs/general-structure-diagnostics.md、docs/rc-filter-check.md。
 
 ## 验证记录
+
+2026-10-28：发布前完整 JavaScript 回归 672/672 通过；输入来源 39 项浏览器交互检查通过。静态发布依赖本项目文件，无后端服务。线上验收需再核对 release.json 的源提交、发布指纹和实际资源字节。
 
 2026-10-04：157 项 JavaScript 测试、6 项启动测试通过。静态审计检查 67 个运行文件及 154 个相对资源引用。GFM 还通过独立状态方程对频响及极点的复核（docs/validation/gfm-state-verification.json）。PI 两组增益比较同时通过特征多项式及独立状态空间验证，详见 docs/validation/pi-comparison.md。实际 HTTPS 主机的缓存、MIME 与存储权限需部署方在目标站点再验收。
 

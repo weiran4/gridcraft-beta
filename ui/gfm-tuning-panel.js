@@ -1,3 +1,4 @@
+import {mountRequestSources} from './request-sources.js';
 import {mountManualWorkspace} from './gfl-manual-workspace.js';
 import {gfmSnapshot} from '../project/gfm-advisor-state.js';
 import {tuningSnapshot} from '../project/gfl-tuning-state.js';
@@ -42,6 +43,7 @@ export function mountGfmTuningPanel(host,callbacks){
   lastModel=model;const {request,current,result,selectedId,busy,stale,message,invalid,canRestore,modeName,input,currentGains,diagnostics=[]}=model;
   host.dataset.busy=String(Boolean(busy));
   for(const el of host.querySelectorAll('[data-gfm-request]')){const value=request[el.dataset.gfmRequest];if(el.type==='checkbox')el.checked=Boolean(value);else if(document.activeElement!==el)el.value=value??'';}
+  mountRequestSources(host,'data-gfm-request',model,callbacks.onInputSource);
   host.querySelector('.gfm-target-only').hidden=request.mode!=='target';
   q('gfmGenerate').disabled=Boolean(busy||invalid);q('gfmCancel').disabled=!busy;q('gfmAnalyze').disabled=Boolean(invalid);q('gfmRestore').disabled=!canRestore;
   const autoCandidates=result?.candidates??[],selectedAuto=autoCandidates.find(c=>c.id===selectedId)??(selectedId?.startsWith('manual-')?null:autoCandidates[0]);

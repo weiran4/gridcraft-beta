@@ -1,0 +1,8 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {resolveControlImplementation} from '../project/control-implementation.js';
+import {assessOperatingCapability} from '../analysis/operating-capability.js';
+import {compareCase} from '../analysis/validation-comparison.js';
+test('legacy structure is explicit and invalid or unknown structures never silently fall back',()=>{const c=resolveControlImplementation();assert.equal(c.capacitorDecouplingSignal,'capacitor');assert.equal(c.actuatorGain,1);assert.throws(()=>resolveControlImplementation({actuatorGain:0}));assert.throws(()=>resolveControlImplementation({gridCurrentFilterSeconds:-1}));assert.throws(()=>resolveControlImplementation({capacitorDecouplingSignal:'typo'}));assert.throws(()=>resolveControlImplementation({typo:1}));});
+test('capacity and stability are separate, unknown limits are not passes',()=>{const a=assessOperatingCapability({bridgeCurrentPu:1.4,gridCurrentPu:1.2,modulation:.9},{bridgeCurrentPu:1,modulation:1});assert.equal(a.status,'failed');assert.equal(a.gridCurrent.status,'unknown');assert.equal(assessOperatingCapability({bridgeCurrentPu:1,modulation:.9}).status,'unknown');});
+test('startup and saturated observations cannot validate a linear equilibrium',()=>{for(const observation of [{stage:'startup',stable:false},{stage:'equilibrium',stable:true,saturated:true}])assert.equal(compareCase({stable:true},observation).comparable,false);assert.equal(compareCase({stable:false},{stage:'equilibrium',stable:false,smallSignal:true,saturated:false,sameOperatingPoint:true}).agreement,true);});
+

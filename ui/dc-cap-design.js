@@ -1,3 +1,4 @@
+import {mountInputSources} from './input-sources.js';
 import {operatingSummary} from './operating-summary.js?v=pq1';
 import {dcCapContext,designDcCapacitor} from '../analysis/dc-capacitor.js?v=pq1';
 import {installFormulaTooltip} from './formula-tooltip.js?v=linkage1';
@@ -12,10 +13,12 @@ export function mountDcCapDesign(host,project,c,save,apply){
  const field=(k,label,unit)=>`<label class="field"><span>${label}</span><div class="field-input"><input data-cap="${k}" type="number" step="any" aria-label="${label}" value="${esc(String(settings[k]==null?'':k==='selectedMf'?settings[k]*1000:settings[k]))}"><small>${unit}</small></div></label>`;
  host.innerHTML=`<div class="filter-design-grid"><section><h3>01 · 设计输入</h3><p class="help-label">DC 母线总等效电容 · 保持时间与储能 · ${esc(c.name)}</p><div data-cap-context></div>${field('etaPercent','变流器效率 η','%')}<p class="help-label">98% 为可修改的初始假设，请按实际效率填写。</p><label class="field"><span>保持时间来源</span><select data-cap="timeMode" aria-label="保持时间来源"><option value="period">跟随基波周期 · Th = 1/f₀</option><option value="custom">独立设定保持时间</option></select></label>${field('holdMs','保持时间 Th','ms')}<label class="field"><span>电容配置</span><select data-cap="seriesCount" aria-label="电容配置"><option value="2">两个相同电容串联</option><option value="1">整体等效电容</option></select></label><div class="note">按所选逆变器额定有功 Pcon 计算，额定选型保留额定有功基准，并单独展示运行 P 下的储能需求；无功不直接代入保持时间能量公式。此准则使用全部储能，未限定最低允许 DC 电压；不代表母线能在保持时间内维持额定电压，也未校核纹波电流、ESR 或寿命。</div></section><section><h3>02 · 能量与电容选值</h3><div data-cap-result aria-live="polite"></div>${field('selectedMf','选用总等效电容 Cbus','μF')}<div data-cap-preview></div><button data-cap-min class="contribution">选用最低总等效电容</button><button data-cap-apply class="primary calculate">应用到此逆变器</button><div data-cap-status role="status"></div><p class="help-label">应用后保存至本逆变器，支持撤销、工程导出及 PI 页面同步。PI 页选择 Vdc 外环时可使用此电容建立母线动态；电路 DC 理想源与 SCR 计算不受此选值影响。</p></section><section class="derived-equations filter-design-formulas"><h3>03 · 设计公式与定义</h3><p class="help-label">悬停或 Tab 聚焦变量查看实时数值与单位。</p>${formulas()}</section></div>`;
  for(const k of ['timeMode','seriesCount'])host.querySelector(`[data-cap="${k}"]`).value=String(settings[k]);
- const inputs=[...host.querySelectorAll('[data-cap]')],read=()=>Object.fromEntries(inputs.map(e=>[e.dataset.cap,e.dataset.cap==='timeMode'?e.value:e.value===''?null:Number(e.value)/(e.dataset.cap==='selectedMf'?1000:1)]));
+ const sources=mountInputSources(host,{selector:'input[data-cap]',key:el=>el.dataset.cap,stored:c.extensions?.dcCapDesign||{},suggestions:{etaPercent:98,holdMs:20},linked:(el,k)=>k==='holdMs'&&host.querySelector('[data-cap=timeMode]').value==='period'?'derived':k==='selectedMf'&&stored.selectedMf==null&&applied?'project':null});
+ const inputs=[...host.querySelectorAll('[data-cap]')],read=()=>({...Object.fromEntries(inputs.map(e=>[e.dataset.cap,e.dataset.cap==='timeMode'?e.value:e.value===''?null:Number(e.value)/(e.dataset.cap==='selectedMf'?1000:1)])),_inputSources:sources.read()});
  const result=host.querySelector('[data-cap-result]'),preview=host.querySelector('[data-cap-preview]'),context=host.querySelector('[data-cap-context]'),button=host.querySelector('[data-cap-apply]'),min=host.querySelector('[data-cap-min]'),status=host.querySelector('[data-cap-status]'),setVariables=installFormulaTooltip(host);
  const calc=()=>{const p=read(),ctx=dcCapContext(project,c.id);return {p,ctx,r:designDcCapacitor({...ctx,...p})};};
  function update(){
+  queueMicrotask(sources.refresh);
   const p=read(),errors={};if(!(p.etaPercent>0&&p.etaPercent<=100))errors.etaPercent='效率须在 0% 至 100% 之间，不含 0%。';if(p.timeMode==='custom'&&!(p.holdMs>0))errors.holdMs='保持时间必须为正数。';if(!(p.selectedMf>0))errors.selectedMf='请输入正的总等效电容。';
   const time=host.querySelector('[data-cap="holdMs"]');time.disabled=p.timeMode==='period';if(time.disabled)time.value=1000/project.frequencyHz;
   try{const {ctx,r}=calc();context.innerHTML=operatingSummary(ctx)+metric('额定有功 Pcon',fmt(ctx.ratedW/1e6)+' MW')+metric('DC 电压 · '+esc(ctx.sourceName),fmt(ctx.dcVoltage)+' V')+metric('基波频率',fmt(ctx.frequencyHz)+' Hz')+(ctx.sharedCount>1?'<div class="note warning">多个逆变器共用 DC 节点，本窗口仅设计当前单机电容，不作为全站合计容量。</div>':'');
@@ -28,7 +31,7 @@ export function mountDcCapDesign(host,project,c,save,apply){
  }
  const persist=()=>{const p=read();if(!Object.values(p).some(v=>typeof v==='number'&&!Number.isFinite(v)))save(p);};
  inputs.forEach(e=>{e.oninput=()=>{status.textContent='';update();};e.onchange=()=>{update();persist();};});
- min.onclick=()=>{try{host.querySelector('[data-cap="selectedMf"]').value=calc().r.minF*1e6;update();persist();}catch{}};
+ min.onclick=()=>{try{host.querySelector('[data-cap="selectedMf"]').value=calc().r.minF*1e6;sources.set('selectedMf','derived');update();persist();}catch{}};
  button.onclick=()=>{try{const {p,r}=calc();if(r.pass){apply({capacitanceF:r.selectedF,seriesCount:p.seriesCount},p);update();status.textContent='已保存到 '+c.name+'，主页面及 PI 页同步。';}}catch{update();}};update();
 }
 function formulas(){

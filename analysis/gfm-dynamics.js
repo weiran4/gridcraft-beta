@@ -1,3 +1,5 @@
+import {resolveControlImplementation} from '../project/control-implementation.js';
+import {solveIslandOperatingPoint} from './gfm-operating-point.js';
 import {eigenvalues} from './eigenvalues.js?v=gfm2';
 import {validateGfmInput,validateGfmGains} from './gfm-pi.js?v=scr1';
 export function gfmOperatingPoint(p){
@@ -7,42 +9,52 @@ export function gfmOperatingPoint(p){
  const V=Math.sqrt((b+Math.sqrt(disc))/2),ig=[P/V,-Q/V],rc=p.Rc/Z,Xc=1/(w*p.C*Z),den=rc*rc+Xc*Xc,ic=[V*rc/den,V*Xc/den],il=ig.map((v,k)=>v+ic[k]),vc=[V-rc*ic[0],-rc*ic[1]],eg=[V-r*ig[0]+x*ig[1],-r*ig[1]-x*ig[0]],u=[V+p.R/Z*il[0]-w*p.L/Z*il[1],p.R/Z*il[1]+w*p.L/Z*il[0]];
  return {Z,w,P,Q,V,ig,ic,il,vc,eg,u,currentPu:Math.hypot(...il),modulation:2*Math.sqrt(2/3)*p.voltageLL*Math.hypot(...u)/p.dcVoltage,voltageLL:V*p.voltageLL};
 }
-export function gfmDynamicModel(p,g,mode,m){
- if(p.considerScr===false)throw Error('SCR 未启用，不能运行并网 dq 耦合校核。');
- validateGfmInput(p);validateGfmGains(g);if(!['droop','vsg','sync'].includes(mode))throw Error('未知成网模式。');
- for(const k of mode==='droop'?['mp','nq']:['h','d','nq',mode==='vsg'?'kv':'ke'])if(!Number.isFinite(m[k])||m[k]<=0)throw Error(k+' 必须为正数。');
- if(p.gridL<=0)throw Error('耦合动态模型需要正的电网电感。');
- const op=gfmOperatingPoint(p),{Z,w}=op,l=p.L/Z,lg=p.gridL/Z,C=p.C*Z,rl=p.R/Z,rg=p.gridR/Z,rc=p.Rc/Z;
+export function gfmDynamicModel(p,g,mode,m,implementation={},topology={kind:'grid-connected'}){
+ const config=resolveControlImplementation(implementation),island=topology.kind==='island';
+ if(!['grid-connected','island'].includes(topology.kind))throw Error('Unsupported topology');
+ if(!island&&mode==='fixed')throw Error('Fixed reference is island-only');
+ if(!island&&p.considerScr===false)throw Error('SCR 未启用，不能运行并网 dq 耦合校核。');
+ validateGfmInput(island?{...p,considerScr:true,gridR:0,gridL:1}:p);validateGfmGains(g);if(!['droop','vsg','sync','fixed'].includes(mode))throw Error('未知成网模式。');
+ for(const k of mode==='fixed'?[]:mode==='droop'?['mp','nq']:['h','d','nq',mode==='vsg'?'kv':'ke'])if(!Number.isFinite(m[k])||m[k]<=0)throw Error(k+' 必须为正数。');
+ if(!island&&p.gridL<=0)throw Error('耦合动态模型需要正的电网电感。');
+ const op=island?solveIslandOperatingPoint(p,topology.load):gfmOperatingPoint(p),{Z,w}=op,l=p.L/Z,lg=p.gridL/Z,C=p.C*Z,rl=p.R/Z,rg=p.gridR/Z,rc=p.Rc/Z;
  const names=[],x0=[],idx={};const state=(key,v)=>{idx[key]=names.length;names.push(key);x0.push(v);};
- for(const key of ['il','ig','vc'])op[key].forEach((v,k)=>state(key+k,v));
+ for(const key of island?['il','vc']:['il','ig','vc'])op[key].forEach((v,k)=>state(key+k,v));
  if(p.filterCurrentMs>0)op.il.forEach((v,k)=>state('hi'+k,v));
  if(p.filterVoltageMs>0)[op.V,0].forEach((v,k)=>state('hv'+k,v));
- if(p.filterPqMs>0){state('pf',op.P);state('qf',op.Q);}
- const xi=op.u.map((v,k)=>v-p.feedforwardVoltage*(k===0?op.V:0)-(k===0?-1:1)*w*l*op.il[1-k]);
- const xv=op.il.map((v,k)=>v-p.feedforwardCurrent*op.ig[k]-(k===0?-1:1)*w*C*op.vc[1-k]);
+ if(mode!=='fixed'&&p.filterPqMs>0){state('pf',op.P);state('qf',op.Q);}
+ if((!island||op.loadConductancePu>0)&&config.gridCurrentFilterSeconds>0)op.ig.forEach((v,k)=>state('fig'+k,v));
+ const cap0=config.capacitorDecouplingSignal==='capacitor'?op.vc:[op.V,0];
+ const xi=op.u.map((v,k)=>v/config.actuatorGain-p.feedforwardVoltage*(k===0?op.V:0)-(k===0?-1:1)*w*l*op.il[1-k]);
+ const xv=op.il.map((v,k)=>v-p.feedforwardCurrent*op.ig[k]-(k===0?-1:1)*w*C*cap0[1-k]);
  for(let k=0;k<2;k++){if(g[k?'q':'d'].ki>0)state('xi'+k,xi[k]);if(g[k?'Q':'P'].ki>0)state('xv'+k,xv[k]);}
- state('delta',0);if(mode!=='droop'){state('omega',1);state('emf',op.V);}
- const Td=p.delaySamples/p.fs;if(Td>0)op.u.forEach((v,k)=>state('delay'+k,v));
+ if(!island)state('delta',0);if(mode!=='fixed'&&mode!=='droop'){state('omega',1);state('emf',op.V);}
+ const Td=p.delaySamples/p.fs;if(Td>0)op.u.forEach((v,k)=>state('delay'+k,v/config.actuatorGain));
  const derivative=(x,reference={})=>{
   const out=Array(x.length).fill(0),get=(key,fallback=0)=>idx[key]===undefined?fallback:x[idx[key]],put=(key,v)=>{if(idx[key]!==undefined)out[idx[key]]=v;};
-  const il=[get('il0'),get('il1')],ig=[get('ig0'),get('ig1')],vc=[get('vc0'),get('vc1')],v=vc.map((a,k)=>a+rc*(il[k]-ig[k]));
+  const il=[get('il0'),get('il1')],ig=[get('ig0'),get('ig1')],vc=[get('vc0'),get('vc1')],v=vc.map((a,k)=>(a+rc*(il[k]-ig[k]))/(island?1+rc*op.loadConductancePu:1));
+  if(island)for(let k=0;k<2;k++)ig[k]=op.loadConductancePu*v[k];
+  const fig=ig.map((a,k)=>get('fig'+k,a));
   const hi=il.map((a,k)=>get('hi'+k,a)),hv=v.map((a,k)=>get('hv'+k,a)),P=v[0]*ig[0]+v[1]*ig[1],Q=v[1]*ig[0]-v[0]*ig[1],pf=get('pf',P),qf=get('qf',Q),Vf=Math.hypot(...hv);
-  const pref=op.P+(reference.P??0),qref=op.Q+(reference.Q??0),vref=op.V+(reference.V??0),om=mode==='droop'?1+m.mp/100*(pref-pf):get('omega'),freq=w*om;
-  const amplitude=mode==='droop'?vref+m.nq/100*(qref-qf):mode==='sync'?om*get('emf'):get('emf');
+  const pref=op.P+(reference.P??0),qref=op.Q+(reference.Q??0),vref=op.V+(reference.V??0),om=mode==='fixed'?1:mode==='droop'?1+m.mp/100*(pref-pf):get('omega'),freq=w*om;
+  const decFreq=config.decouplingFrequencySource==='nominal'?w:freq,cap=config.capacitorDecouplingSignal==='capacitor'?vc:hv;
+  const amplitude=mode==='fixed'?vref:mode==='droop'?vref+m.nq/100*(qref-qf):mode==='sync'?om*get('emf'):get('emf');
   const ir=[0,0],u=[0,0];for(let k=0;k<2;k++){
    const ev=(k===0?amplitude:0)-hv[k],sgn=k===0?-1:1;
-   ir[k]=g[k?'Q':'P'].kp*ev+get('xv'+k,xv[k])+p.feedforwardCurrent*ig[k]+sgn*freq*C*vc[1-k];put('xv'+k,g[k?'Q':'P'].ki*ev);
-   const ei=ir[k]-hi[k];u[k]=g[k?'q':'d'].kp*ei+get('xi'+k,xi[k])+p.feedforwardVoltage*hv[k]+sgn*freq*l*hi[1-k];put('xi'+k,g[k?'q':'d'].ki*ei);
+   ir[k]=g[k?'Q':'P'].kp*ev+get('xv'+k,xv[k])+p.feedforwardCurrent*fig[k]+sgn*decFreq*C*cap[1-k];put('xv'+k,g[k?'Q':'P'].ki*ev);
+   const ei=ir[k]-hi[k];u[k]=g[k?'q':'d'].kp*ei+get('xi'+k,xi[k])+p.feedforwardVoltage*hv[k]+sgn*decFreq*l*hi[1-k];put('xi'+k,g[k?'q':'d'].ki*ei);
   }
-  const delta=get('delta'),eg=[op.eg[0]*Math.cos(delta)+op.eg[1]*Math.sin(delta),-op.eg[0]*Math.sin(delta)+op.eg[1]*Math.cos(delta)];
+  const delta=get('delta'),eg=island?[0,0]:[op.eg[0]*Math.cos(delta)+op.eg[1]*Math.sin(delta),-op.eg[0]*Math.sin(delta)+op.eg[1]*Math.cos(delta)];
   for(let k=0;k<2;k++){
    let ud=u[k];if(Td>0){ud=2*get('delay'+k)-ud;put('delay'+k,2/Td*(u[k]-get('delay'+k)));}
+   ud*=config.actuatorGain;
    const rot=k===0?1:-1;
-   put('il'+k,(ud-v[k]-rl*il[k])/l+rot*freq*il[1-k]);put('ig'+k,(v[k]-eg[k]-rg*ig[k])/lg+rot*freq*ig[1-k]);put('vc'+k,(il[k]-ig[k])/C+rot*freq*vc[1-k]);
+   put('il'+k,(ud-v[k]-rl*il[k])/l+rot*freq*il[1-k]);if(!island)put('ig'+k,(v[k]-eg[k]-rg*ig[k])/lg+rot*freq*ig[1-k]);
+   if(config.gridCurrentFilterSeconds>0)put('fig'+k,(ig[k]-fig[k])/config.gridCurrentFilterSeconds);put('vc'+k,(il[k]-ig[k])/C+rot*freq*vc[1-k]);
    put('hi'+k,(il[k]-hi[k])/(p.filterCurrentMs/1000));put('hv'+k,(v[k]-hv[k])/(p.filterVoltageMs/1000));
   }
   put('pf',(P-pf)/(p.filterPqMs/1000));put('qf',(Q-qf)/(p.filterPqMs/1000));put('delta',w*(om-1));
-  if(mode!=='droop'){
+  if(mode!=='fixed'&&mode!=='droop'){
    put('omega',(mode==='sync'?(pref-pf)/om-m.d*(om-1):pref-pf-m.d*(om-1))/(2*m.h));
    put('emf',(mode==='vsg'?m.kv:m.ke)*((vref-Vf)/(m.nq/100)+qref-qf));
   }
@@ -50,7 +62,7 @@ export function gfmDynamicModel(p,g,mode,m){
  };
  const residual=Math.max(...derivative(x0).map(Math.abs));if(!Number.isFinite(residual)||residual>1e-7)throw Error('工作点残差过大，未线性化。');
  const A=names.map(()=>Array(names.length).fill(0));for(let j=0;j<names.length;j++){const h=2e-6*Math.max(1,Math.abs(x0[j])),plus=[...x0],minus=[...x0];plus[j]+=h;minus[j]-=h;const a=derivative(plus),b=derivative(minus);for(let i=0;i<names.length;i++)A[i][j]=(a[i]-b[i])/(2*h);}
- return {A,x0,names,op,residual,derivative,delayModel:Td>0?'first-order-pade':'none'};
+ return {A,x0,names,op,residual,derivative,implementation:config,topology:topology.kind,scope:mode==='fixed'?'fixed-forming-reference':island?'coupled-island-forming':'coupled-forming',delayModel:Td>0?'first-order-pade':'none'};
 }
 export function analyzeGfmMode(p,g,mode,m){const model=gfmDynamicModel(p,g,mode,m),poles=eigenvalues(model.A),alpha=poles[0].re;return {mode,poles,alpha,stable:alpha< -1e-6,marginal:Math.abs(alpha)<=1e-6,order:model.names.length,op:model.op,residual:model.residual,delayModel:model.delayModel,damping:poles.filter(z=>Math.abs(z.im)>1e-4).map(z=>({frequencyHz:Math.abs(z.im)/(2*Math.PI),zeta:-z.re/Math.hypot(z.re,z.im)})).sort((a,b)=>a.zeta-b.zeta)};}
 

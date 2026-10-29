@@ -1,0 +1,58 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><link rel="stylesheet" href="../../ui/style.css">
+<style>body{height:auto;overflow:auto}#status{padding:20px;font-size:18px}iframe{width:1400px;height:900px;border:0}</style>
+<div id="status">RUNNING · use an isolated browser profile (page tests replace localStorage)</div><div id="host"></div>
+<script type="module">
+import {mountRcDesign} from '../../ui/rc-design.js';
+import {mountFilterDesign} from '../../ui/filter-design.js';
+import {mountDcDesign} from '../../ui/dc-design.js';
+import {mountDcCapDesign} from '../../ui/dc-cap-design.js';
+import {demo} from '../../examples/demo.js';
+const host=document.getElementById('host'),status=document.getElementById('status'),checks=[];
+const assert=(c,s)=>{if(!c)throw Error(s);checks.push(s);status.textContent='RUNNING '+checks.length+' · '+s;};
+const get=s=>host.querySelector(s),edit=(s,v)=>{const e=get(s);e.value=String(v);e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));};
+const tick=()=>new Promise(r=>setTimeout(r,20));
+const canonical=v=>JSON.stringify(sort(v));
+function sort(v){return Array.isArray(v)?v.map(sort):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().map(k=>[k,sort(v[k])])):v;}
+try{
+ for(const [name,mount,type,extension,key,attribute,suggested] of [
+  ['RC',mountRcDesign,'rc','rcDesign','qualityFactor','rc',5],
+  ['Lf',mountFilterDesign,'gfl','filterDesign','ripplePercent','filter',20],
+  ['DC',mountDcDesign,'dc','dcDesign','marginPercent','dc',5],
+  ['Cbus',mountDcCapDesign,'gfl','dcCapDesign','etaPercent','cap',98]]){
+  const p=demo('pvfarm'),c=p.components.find(c=>c.type===type);c.extensions??={};delete c.extensions[extension];const before=JSON.stringify(p.components.map(c=>c.parametersSI));
+  const save=v=>c.extensions[extension]=structuredClone(v),open=()=>mount(host,p,c,save,()=>{});open();await tick();const selector=`[data-${attribute}="${key}"]`;
+  assert(get(selector).valueAsNumber===suggested&&get(selector).dataset.valueSource==='suggested',name+' existing default is an effective grey suggestion');
+  edit(selector,suggested-1);await tick();assert(get(selector).dataset.valueSource==='custom',name+' edit becomes custom');
+  open();await tick();assert(get(selector).dataset.valueSource==='custom',name+' custom origin survives reopening');
+  const badge=get(selector).closest('.field-input').nextElementSibling;badge.querySelector('button').click();await tick();
+  assert(get(selector).valueAsNumber===suggested&&get(selector).dataset.valueSource==='suggested',name+' restore uses normal input calculation');
+  open();await tick();assert(get(selector).dataset.valueSource==='suggested',name+' suggested origin survives reopening');
+  assert(JSON.stringify(p.components.map(c=>c.parametersSI))===before,name+' preview preserves physical parameters');
+  delete c.extensions[extension]._inputSources;open();await tick();assert(get(selector).dataset.valueSource==='saved',name+' legacy value matching default is preserved as saved');
+ }
+ const p=demo('pvfarm'),c=p.components.find(c=>c.type==='rc');mountRcDesign(host,p,c,()=>{},()=>{});get('[data-h="target"]').value='';
+ assert(get('[data-h="target"]').value==='', 'optional acceptance limit stays empty');
+ host.replaceChildren();
+ for(const [name,owner,page] of [['pvfarm','PV1','gfl'],['gfm480','GFM1','gfm']]){
+  const p=demo(name);p.extensions??={};p.extensions[page+'Pi']={[owner]:{}};localStorage.setItem('gridcraft-v1',JSON.stringify(p));
+  const iframe=document.createElement('iframe');iframe.src='../../'+page+'.html?ibr='+owner;host.append(iframe);
+  const wait=async predicate=>{for(let i=0;i<1000;i++){if(predicate())return;await tick();}throw Error(page+' timed out');};
+  await wait(()=>iframe.contentDocument?.querySelector('[data-setting="filterCurrentMs"]')?.dataset.valueSource);
+  const field=()=>iframe.contentDocument.querySelector('[data-setting="filterCurrentMs"]');
+  assert(field().dataset.valueSource==='suggested',page+' missing filter uses labelled suggestion');
+  const value=JSON.parse(localStorage.getItem('gridcraft-v1')).components.map(c=>c.parametersSI);
+  field().value='2';field().dispatchEvent(new iframe.contentWindow.Event('change',{bubbles:true}));
+  await wait(()=>JSON.parse(localStorage.getItem('gridcraft-v1')).extensions?.[page+'Pi']?.[owner]?.filterCurrentMs===2);
+  assert(field().dataset.valueSource==='custom',page+' custom source after save');
+  iframe.contentWindow.location.reload();await wait(()=>field()?.valueAsNumber===2&&field()?.dataset.valueSource==='custom');
+  assert(canonical(JSON.parse(localStorage.getItem('gridcraft-v1')).components.map(c=>c.parametersSI))===canonical(value),page+' filter edit preserves physical parameters');
+  const badge=field().closest('label')?.querySelector('.input-source-info')||field().nextElementSibling;badge.querySelector('button').click();
+  await wait(()=>JSON.parse(localStorage.getItem('gridcraft-v1')).extensions?.[page+'Pi']?.[owner]?.filterCurrentMs===1);
+  assert(field().dataset.valueSource==='suggested',page+' explicit restore persists effective value');
+  assert(JSON.parse(localStorage.getItem('gridcraft-v1')).extensions?.[page+'Pi']?.[owner]?.gains==null,page+' no automatic PI generation');
+  iframe.remove();
+ }
+ status.textContent='PASS '+checks.length+' checks';status.dataset.result='pass';
+ const p2=demo('pvfarm'),rc=p2.components.find(c=>c.type==='rc');delete rc.extensions.rcDesign;mountRcDesign(host,p2,rc,()=>{},()=>{});
+}catch(e){status.textContent='FAIL '+checks.length+' · '+e.stack;status.dataset.result='fail';}
+</script></html>

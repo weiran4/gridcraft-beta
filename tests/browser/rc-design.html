@@ -1,0 +1,28 @@
+<!doctype html><html lang="zh"><meta charset="utf-8"><link rel="stylesheet" href="../../ui/style.css"><style>body{display:block;height:auto;overflow:auto;margin:0} #host{max-width:1550px;margin:auto} #status{margin:12px} body[data-shot] .filter-design-grid>section:not(.rc-network-check){display:none}</style><div id="status">RUNNING</div><div id="host"></div><script type="module">
+import {mountRcDesign} from '../../ui/rc-design.js';import {demo} from '../../examples/demo.js';
+const host=document.getElementById('host'),status=document.getElementById('status'),checks=[];
+const assert=(condition,label)=>{if(!condition)throw Error(label);checks.push(label)};
+const edit=(selector,value)=>{const el=host.querySelector(selector);el.value=value;el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));};
+try{
+for(const name of ['pvfarm','gfm480']){
+ const p=demo(name),rc=p.components.find(c=>c.type==='rc'),before=JSON.stringify(p);let applied=0;
+ mountRcDesign(host,p,rc,()=>{},params=>{applied++;Object.assign(rc.parametersSI,params)});
+ assert(host.querySelectorAll('.rc-attenuation-plot').length===1,name+' chart loads');
+ assert(JSON.stringify(p)===before,name+' mount preserves demo');
+ const initial=host.querySelector('[data-h-result]').textContent;
+ edit('[data-rc="resistanceMode"]','manual');edit('[data-rc="selectedR"]','10');
+ assert(host.querySelector('[data-h-result]').textContent!==initial,name+' resistance changes response');
+ edit('[data-h="target"]','5');assert(/满足|不满足/.test(host.querySelector('[data-h-result]').textContent),name+' single frequency check');
+ edit('[data-h="scope"]','local');assert(host.querySelector('[data-h-network]').textContent.includes('局部'),name+' local comparison');
+ assert(JSON.stringify(p)===before&&applied===0,name+' trial preserves demo');
+ edit('[data-rc="selectedR"]','-1');assert(host.querySelector('[data-rc-apply]').disabled&&!host.querySelector('.rc-attenuation-plot'),name+' invalid trial clears result');
+ edit('[data-rc="selectedR"]','2');host.querySelector('[data-rc-mid]').click();host.querySelector('[data-rc-apply]').click();assert(applied===1&&rc.parametersSI.resistanceOhm===2,name+' explicit application');
+}
+const p=demo('gfm480'),rc=p.components.find(c=>c.type==='rc');mountRcDesign(host,p,rc,()=>{},()=>{});
+edit('[data-h="target"]','5');
+assert(!host.innerHTML.includes('NaN'), 'finite DOM');
+if(location.search.includes('shot'))document.body.dataset.shot='yes';
+status.textContent='PASS '+checks.length+' checks';status.dataset.result='pass';
+}catch(e){status.textContent='FAIL '+e.stack;status.dataset.result='fail';}
+</script></html>
+

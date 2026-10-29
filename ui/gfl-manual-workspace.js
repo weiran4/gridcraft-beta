@@ -10,7 +10,7 @@ export const manualContextKey=m=>m.applicationContext?.requestKey??tuningSnapsho
 export function mountManualWorkspace(host,callbacks,adapter={}){
  const editorHost=adapter.editorHost??host;
  const bar=document.createElement('section');bar.id='manualWorkspace';bar.className='manual-workspace';
- bar.innerHTML=`<div class="manual-controls"><strong>手动试调 · 不覆盖当前 PI</strong><label>积分参数 <select id="manualIntegralForm"><option value="ki">Kp / Ki</option><option value="ti">Kp / Ti</option></select></label><label class="manual-link"><input id="manualLinkedDq" type="checkbox">同步调整 d/q 电流环参数</label><button id="manualReset">恢复到当前 PI</button><button id="manualApply" class="primary" disabled>应用试调参数</button></div>
+ bar.innerHTML=`<div class="manual-controls"><strong>手动试调 · 不覆盖当前 PI</strong><label>积分参数 <select id="manualIntegralForm"><option value="ki">Kp / Ki</option><option value="ti">Kp / Ti</option></select></label><label class="manual-link"><input id="manualLinkedDq" type="checkbox">同步调整 d/q 电流环参数</label><button id="manualReset">恢复到当前 PI</button><button id="manualApply" class="primary" disabled>应用试调参数</button><label id="manualTrialLabel"><input id="manualTrialAck" type="checkbox">作为试验参数保存，不代表校核达标</label><button id="manualTrial" disabled>保存为试验 PI</button></div>
  <div class="manual-names"><label>方案名称<input id="manualName" maxlength="80" placeholder="例如：外环更稳 · 方案 A"></label><button id="manualSave">暂存为命名候选</button><button id="manualRename" disabled>重命名所选</button><button id="manualDelete" disabled>删除所选</button></div>
  <p id="manualStatus" role="status">拖动下方滑条开始试调；暂存会保存全部四环参数，不会替换当前 PI。</p>`;
  editorHost.querySelector('.step-loop-grid').before(bar);
@@ -52,7 +52,7 @@ export function mountManualWorkspace(host,callbacks,adapter={}){
   }
  }
  function draw(){
-  syncFields();bar.dataset.busy=String(busy);bar.dataset.active=String(!!draft);
+  syncFields();q('manualTrial').hidden=!callbacks.onTrial;q('manualTrialLabel').hidden=!callbacks.onTrial;q('manualTrial').disabled=Boolean(!callbacks.onTrial||!q('manualTrialAck').checked||invalid||model?.invalid||!draft||suspended);bar.dataset.busy=String(busy);bar.dataset.active=String(!!draft);
   q('manualSave').disabled=Boolean(invalid||model?.invalid);q('manualApply').disabled=Boolean(invalid||model?.invalid||busy||suspended||!draft||!result?.requirementsMet);
   q('manualRename').disabled=!draft?.record;q('manualDelete').disabled=!draft?.record;q('manualReset').disabled=Boolean(model?.invalid);
   const title=result?.conditionsChanged?'保存时的条件已变化，已按当前模型重新评估。 ':'';
@@ -62,7 +62,7 @@ export function mountManualWorkspace(host,callbacks,adapter={}){
   if(!model||model.invalid)return;
   // Revoke an in-flight application even when validation rejects this edit.
   // Keep this separate from onStart, which may resume explicitly paused work.
-  const value=el.value;callbacks.onInvalidate?.();
+  const value=el.value;q('manualTrialAck').checked=false;callbacks.onInvalidate?.();
   try{
    const next=editManualGains(base(),k,f==='ki'&&q('manualIntegralForm').value==='ti'?'ti':f,value,{linkedDq:q('manualLinkedDq').checked});
    el.removeAttribute('aria-invalid');numbers[tag].removeAttribute('aria-invalid');
@@ -78,6 +78,8 @@ export function mountManualWorkspace(host,callbacks,adapter={}){
  q('manualSave').onclick=()=>{try{const nextId=callbacks.onSave({name:q('manualName').value.trim()||`手动方案 ${(model.manualCandidates?.length??0)+1}`,gains:structuredClone(base()),contextKey:contextKey()});if(nextId){forceSelection=true;callbacks.onSelect(nextId);}message='已暂存全部四环参数；当前 PI 未改变。';notify();}catch(error){message=error.message;notify();}};
  q('manualRename').onclick=()=>{try{callbacks.onRename(draft.record.id,q('manualName').value);message='已重命名，参数未改变。';notify();}catch(error){message=error.message;notify();}};
  q('manualDelete').onclick=()=>{try{callbacks.onDelete(draft.record.id);draft=null;result=null;evalKey=null;client.clear();callbacks.onSelect(null);message='已删除所选暂存方案；当前 PI 未改变。';comparison();notify();}catch(error){message=error.message;notify();}};
+ q('manualTrialAck').onchange=draw;
+ q('manualTrial').onclick=()=>{if(q('manualTrial').disabled)return;try{callbacks.onTrial({gains:structuredClone(base()),contextKey:contextKey()});q('manualTrialAck').checked=false;}catch(error){message=error.message;}notify();};
  q('manualApply').onclick=()=>{if(!result?.requirementsMet||busy||invalid||suspended)return;callbacks.onApply(result,contextKey());};
  return {
   sync(next,selectedAuto){

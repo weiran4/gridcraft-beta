@@ -14,7 +14,7 @@ import {targetCheck} from './gfl-tuning-search.js';
 
 const outerId='outer-reference-closed',currentId='current-reference-frozen-outer',loops=['d','q','P','Q'];
 const rankingPolicyId='gfl-mainline-performance-v1';
-const requestKeys=['mode','focus','minMargin','preferredMargin','separationRatio','tolerance','allowReduction','fi','fp','minimumFi','minimumFp',
+const requestKeys=['enforceScalarMargin','responseMaxPoints','mode','focus','minMargin','preferredMargin','separationRatio','tolerance','allowReduction','fi','fp','minimumFi','minimumFp',
  'maxOvershootPercent','maxSettlingSeconds','maxSteadyStateErrorPercent','currentTargets','crossAxisLimits'];
 const legacyRequest=raw=>Object.fromEntries(Object.entries(raw??{}).filter(([k])=>!['maxSteadyStateErrorPercent','currentTargets','crossAxisLimits'].includes(k)));
 const normalizedRequest=raw=>{
@@ -46,7 +46,7 @@ function scalarConstraints(scalar,request){
   const l=scalar.loops[k],r=scalar.refinement?.loops?.[k];
   if(l.crossings.length!==1||l.nearTangency||l.scanStatus!=='ok'||r&&(r.crossings.length!==1||r.nearTangency||r.scanStatus!=='ok'))unmet.push(`${k} 交越不唯一或频域校核未完成`);
   else if(r&&Math.abs(l.crossings[0].frequency/r.crossings[0].frequency-1)>.002)unmet.push(`${k} 交越精度未确认`);
-  if(l.minMargin===null||!Number.isFinite(l.minMargin)||l.minMargin<request.minMargin-.005)unmet.push(`${k} 相位裕度低于设定下限`);
+  if(request.enforceScalarMargin!==false&&(l.minMargin===null||!Number.isFinite(l.minMargin)||l.minMargin<request.minMargin-.005))unmet.push(`${k} 相位裕度低于设定下限`);
  }
  for(const [o,i]of [['P','d'],['Q','q']]){
   const a=scalar.loops[o].crossings[0]?.frequency,b=scalar.loops[i].crossings[0]?.frequency;

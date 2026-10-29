@@ -8,7 +8,7 @@ import {outerContext} from '../analysis/gfl-outer.js';
 const bytes=readFileSync(new URL('./fixtures/PV_Grid_Demo.json',import.meta.url));
 const load=()=>JSON.parse(bytes);
 test('PV1 source is intact and extracted facts reproduce all eight legacy gains',()=>{
- assert.equal(createHash('sha256').update(bytes).digest('hex'),'1982d9f5a1c0c59e058ad42fc6b50a876c41da29e2aaa048dac49b3a5d25a972');
+ assert.equal(createHash('sha256').update(bytes.toString('utf8').replace(/\r\n/g,'\n')).digest('hex'),'1982d9f5a1c0c59e058ad42fc6b50a876c41da29e2aaa048dac49b3a5d25a972');
  const p=load(),before=JSON.stringify(p),s=p.extensions.gflPi.PV1,r=readGflModelInput(p,'PV1',s);
  assert.equal(r.inputStatus,'valid');assert.equal(r.modelInput.dcCapacitanceF,.064);
  assert.equal(r.modelInput.scr,outerContext(p,'PV1').scr);

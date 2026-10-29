@@ -46,8 +46,8 @@ export function prepareResonance(project,rcId){
  const indices=new Map(nodes.map((n,i)=>[n,i]));
  return {rcId,components,clamped,size:nodes.length,port:clamped?-1:indices.get(root(start)),branches:branches.map(b=>({...b,a:indices.get(root(b.a))??-1,b:indices.get(root(b.b))??-1})).filter(b=>b.a!==b.b)};
 }
-function solve(real,imag,rhs){
- const n=real.length,bim=new Float64Array(n),scale=Math.max(...real.map((row,i)=>Math.max(...row.map((v,j)=>Math.hypot(v,imag[i][j])))));
+function solve(real,imag,rhs,branchScale=0){
+ const n=real.length,bim=new Float64Array(n),scale=Math.max(branchScale,...real.map((row,i)=>Math.max(...row.map((v,j)=>Math.hypot(v,imag[i][j])))));
  if(!positive(scale))return null;
  for(let k=0;k<n;k++){
   let pivot=k;for(let i=k+1;i<n;i++)if(Math.hypot(real[i][k],imag[i][k])>Math.hypot(real[pivot][k],imag[pivot][k]))pivot=i;
@@ -68,12 +68,13 @@ export function impedanceAt(model,frequencyHz){
  if(!positive(frequencyHz))throw Error('扫频频率必须大于零。');
  if(model.clamped)return {frequencyHz,re:0,im:0,magnitude:0,phaseDeg:null,singular:false};
  const n=model.size,real=Array.from({length:n},()=>new Float64Array(n)),imag=Array.from({length:n},()=>new Float64Array(n)),rhs=new Float64Array(n),w=2*Math.PI*frequencyHz;
+ let branchScale=0;
  for(const {a,b,R,L,C} of model.branches){
   const x=w*L-(C?1/(w*C):0),d=R*R+x*x;if(d===0)return {frequencyHz,magnitude:Infinity,singular:true};
-  const yr=R/d,yi=-x/d;for(const i of [a,b])if(i>=0){real[i][i]+=yr;imag[i][i]+=yi;}
+  const yr=R/d,yi=-x/d;branchScale=Math.max(branchScale,Math.hypot(yr,yi));for(const i of [a,b])if(i>=0){real[i][i]+=yr;imag[i][i]+=yi;}
   if(a>=0&&b>=0){real[a][b]-=yr;real[b][a]-=yr;imag[a][b]-=yi;imag[b][a]-=yi;}
  }
- rhs[model.port]=1;const result=solve(real,imag,rhs);
+ rhs[model.port]=1;const result=solve(real,imag,rhs,branchScale);
  if(!result)return {frequencyHz,magnitude:Infinity,singular:true};
  const re=result.real[model.port],im=result.imag[model.port],magnitude=Math.hypot(re,im);
  if(!Number.isFinite(magnitude))return {frequencyHz,magnitude:Infinity,singular:true};

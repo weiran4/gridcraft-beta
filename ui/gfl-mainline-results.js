@@ -65,7 +65,9 @@ function summary(e,identity){
  const y0=e.model.operatingPoint?.y0??[];
  return `<section class="mainline-summary" data-eligible="${permitted}" data-evaluation-fingerprint="${esc(e.evaluationFingerprint)}"><h3>${esc(identity)} · PLL 与 dq 联立工程参考模型</h3>
  <p>完整外环稳定性：${esc(states[e.stability?.status]??e.stability?.status)}；最大极点实部 ${fmt(e.stability?.alpha)} s⁻¹</p>
- <p>求解 ${esc(e.solveStatus)} · 响应 ${esc(e.responseQuality)} · 目标 ${esc(e.targetResult?.group)} · ${permitted?'当前评估可应用':'不可应用'}${approx?' · 非零显式延时 Padé 近似':''}</p>
+ <p>动态目标：${e.targetResult?.group==='satisfied'?'满足':e.targetResult?.group==='reduced'?'降频后满足':'未满足'}；时域数值质量：${e.responseQuality==='completed'?'已完成':esc(e.responseQuality)}。稳定不等于全部要求达标。</p>
+ <p>求解 ${esc(e.solveStatus)} · 响应 ${esc(e.responseQuality)} · 目标 ${esc(e.targetResult?.group)} · ${permitted?'当前评估可应用':'未满足推荐应用条件'}${approx?' · 非零显式延时 Padé 近似':''}</p>
+ ${e.responseQuality==='resolutionLimited'?'<p class="mainline-warning">采样分辨率尚未确认；可在整定助手选择“继续精算 · 60,000 点”。这不是系统不稳定的判定。</p>':''}
  <p>T = ${fmt(e.performance?.T)} s · O = ${fmt(e.performance?.O)} % · E = ${fmt(e.performance?.E)} %（同一主线排序证据）</p>
  <p>工作点：${e.model.outputs.slice(0,2).map((p,i)=>`${esc(p.labelZh)} = ${fmt(y0[i])} ${esc(p.unit)}`).join('；')}。${a?.syncMode==='fixed-angle'?'固定同步角，不跟踪 PCC。':`SRF PLL；fn = ${fmt(a?.sync?.fnHz)} Hz（特征频率）；ζ = ${fmt(a?.sync?.damping)}；独立滤波 ${fmt(a?.sync?.filterMs)} ms；fn 来源 ${esc(a?.sources?.['sync.fnHz']??'未声明')}。`}</p>
  <p>显式延时 Td = ${fmt(e.model.delayRepresentation?.seconds)} s；控制 Ts = ${fmt(e.model.configurationSnapshot?.controlStepSeconds)} s；PWM 周期 = ${fmt(e.model.configurationSnapshot?.pwmPeriodSeconds)} s（— 表示未知）；响应采样见各实验数值策略，与两者独立。</p>

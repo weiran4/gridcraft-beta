@@ -1,3 +1,4 @@
+import {mountRequestSources} from './request-sources.js';
 import {mountGflMainlineResults} from './gfl-mainline-results.js';
 import {mountGflDqPanel} from './gfl-dq-panel.js';
 import {mountManualWorkspace} from './gfl-manual-workspace.js';
@@ -14,7 +15,7 @@ export function mountGflTuningPanel(host,callbacks){
  </div><div class="advisor-targets target-only">${field('advisorFi','fi','电流交越目标','Hz')}${field('advisorFp','fp','外环交越目标','Hz')}${field('advisorTolerance','tolerance','交越相对容差','0–0.5')}
  <label class="advisor-check"><input id="advisorAllowReduction" data-request="allowReduction" type="checkbox">允许降低交越（仍显示是否达到原目标）</label>
  ${field('advisorMinimumFi','minimumFi','最低接受电流交越','Hz')}${field('advisorMinimumFp','minimumFp','最低接受外环交越','Hz')}
- </div><details><summary>可选的性能限制与模型范围</summary><div class="advisor-options">
+ </div><div class="mainline-targets" hidden><label><input type="checkbox" data-request="enforceScalarMargin">强制附加标量相位裕度约束（不是完整 dq 系统裕度）</label><label>响应采样预算<select data-request="responseMaxPoints"><option value="20000">标准 · 20,000 点</option><option value="60000">继续精算 · 60,000 点（保持精度要求）</option></select></label></div><details><summary>可选的性能限制与模型范围</summary><div class="advisor-options">
  ${field('advisorMaxOvershoot','maxOvershootPercent','最大超调（空=不设限）','%','min="0"')}${field('advisorMaxSettling','maxSettlingSeconds','最大 ±2% 稳定时间（空=不设限）','s','min="0"')}
  </div><div class="advisor-options mainline-targets" hidden>
  ${field('advisorMaxSteadyError','maxSteadyStateErrorPercent','两外环最大目标相对稳态误差（空=不设限）','%','min="0"')}
@@ -44,16 +45,16 @@ export function mountGflTuningPanel(host,callbacks){
  const workspace=mountManualWorkspace(q('stepPreview'),{
   onChange:()=>{if(lastModel)render(lastModel);},onStart:callbacks.onManualStart,onInvalidate:callbacks.onManualInvalidate,
   onComparison:callbacks.onManualComparison,onSelect:callbacks.onSelect,
-  onSave:callbacks.onManualSave,onRename:callbacks.onManualRename,onDelete:callbacks.onManualDelete,onApply:callbacks.onManualApply
+  onTrial:callbacks.onManualTrial,onSave:callbacks.onManualSave,onRename:callbacks.onManualRename,onDelete:callbacks.onManualDelete,onApply:callbacks.onManualApply
  },{editorHost:q('stepPreview')});
- host.addEventListener('change',e=>{const el=e.target,key=el.dataset.request;if(key){const raw={...callbacks.getRequest()};const value=el.type==='checkbox'?el.checked:el.tagName==='SELECT'?el.value:el.value===''?null:el.valueAsNumber;
+ host.addEventListener('change',e=>{const el=e.target,key=el.dataset.request;if(key){const raw={...callbacks.getRequest()};const value=el.type==='checkbox'?el.checked:el.tagName==='SELECT'?(key==='responseMaxPoints'?Number(el.value):el.value):el.value===''?null:el.valueAsNumber;
  if(key.includes('.')){const [group,field]=key.split('.');raw[group]={...(raw[group]??{}),[field]:value};if(Object.values(raw[group]).every(v=>v===null))raw[group]=null;}else raw[key]=value;callbacks.onRequest(raw);}else if(el.id==='advisorChoice'){workspace.select();callbacks.onSelect(el.value||null);}});
  for(const [id,fn]of [['advisorAnalyze','onAnalyze'],['advisorGenerate','onSearch'],['advisorCancel','onCancel'],['advisorRestore','onRestore']])q(id).onclick=()=>callbacks[fn]();
  q('advisorApply').onclick=()=>{if(manualView?.active)callbacks.onManualApply(manualView.candidate,manualView.contextKey);else callbacks.onApply();};
  function render(model){
   lastModel=model;mainlineMode=model.mainlineSelected===true||!!model.resolvedSnapshot;
   q('advisorFocus').innerHTML=mainlineMode?'<option value="balanced">均衡：时间 / 超调 / 稳态误差</option><option value="tracking">参考跟踪：稳定时间优先</option><option disabled>扰动恢复（未建模）</option>':'<option value="balanced">均衡：时间 / 超调 / 裕度</option><option value="tracking">参考跟踪：稳定时间优先</option><option disabled>扰动恢复（未建模）</option>';
-  host.querySelector('.mainline-targets').hidden=!mainlineMode;q('gflDqPanel').hidden=mainlineMode;
+  host.querySelectorAll('.mainline-targets').forEach(el=>el.hidden=!mainlineMode);q('gflDqPanel').hidden=mainlineMode;
   q('advisorMaxOvershootLabel').textContent=mainlineMode?'两外环最大超调（空=不设限）':'四环最大超调（空=不设限）';
   q('advisorMaxSettlingLabel').textContent=mainlineMode?'两外环最大 ±2% 稳定时间（空=不设限）':'四环最大 ±2% 稳定时间（空=不设限）';
   q('advisorComparisonTitle').textContent=mainlineMode?'标量种子诊断 · 交越 / 裕度 / 级联间隔（不替代联立结论）':'当前 / 候选标量指标';
@@ -61,6 +62,7 @@ export function mountGflTuningPanel(host,callbacks){
   q('stepPreview').querySelector('.step-heading p').textContent=mainlineMode?'手动 PI 编辑器仍用于全部四环；这些标量曲线仅供诊断，主线响应和排序见联立结果。':originalStepIntro;
   const {request,current,result,selectedId,busy,message,stale,canRestore,labels={P:'P',Q:'Q'}}=model;
   for(const el of host.querySelectorAll('[data-request]')){const [key,field]=el.dataset.request.split('.'),value=field?request[key]?.[field]:request[key];if(el.type==='checkbox')el.checked=Boolean(value);else if(document.activeElement!==el)el.value=value??'';}
+  mountRequestSources(host,'data-request',model,callbacks.onInputSource);
   host.querySelector('.target-only').hidden=request.mode!=='target';q('advisorGenerate').disabled=Boolean(busy);q('advisorAnalyze').disabled=Boolean(model.invalid);q('advisorRestore').disabled=!canRestore;
   const autoCandidates=result?.candidates??[],selectedAuto=autoCandidates.find(c=>c.id===selectedId)??(selectedId?.startsWith('manual-')?null:autoCandidates[0]);
   manualView=workspace.sync(model,selectedAuto);q('advisorCancel').disabled=suspended||!(busy||model.currentBusy||manualView.busy);

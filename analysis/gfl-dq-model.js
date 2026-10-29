@@ -32,7 +32,7 @@ const integralDerivative=(gain,error,label)=>{
 const dot=(a,b)=>a[0]*b[0]+a[1]*b[1];
 const rotate=(v,angle)=>[Math.cos(angle)*v[0]+Math.sin(angle)*v[1],-Math.sin(angle)*v[0]+Math.cos(angle)*v[1]];
 export function pllParameters(raw={}){
- const p={...dqDefaults,...raw};positive(p.frequencyHz,'PLL 特征频率 fn');positive(p.damping,'PLL 阻尼系数');nonnegative(p.pllFilterMs,'PLL 测量滤波');
+ const p={...dqDefaults,...raw};if(p.detector!==undefined&&!['dynamic-magnitude','rated-magnitude'].includes(p.detector))fail('invalidInput','PLL 检相方式无效');positive(p.frequencyHz,'PLL 特征频率 fn');positive(p.damping,'PLL 阻尼系数');nonnegative(p.pllFilterMs,'PLL 测量滤波');
  if(typeof p.pllEnabled!=='boolean')fail('invalidInput','PLL 开关必须为布尔值。');
  if(!['auto','rigid','capacitor'].includes(p.dcModel))fail('invalidInput','DC 模型必须为自动、刚性电压或恒功率/电容。');
  if(!['pll','nominal'].includes(p.decouplingFrequency))fail('invalidInput','解耦频率必须为 PLL 估计或额定频率。');
@@ -111,7 +111,7 @@ export function gflDqModel(input,gains,raw={}, {experimentId='outer-reference-cl
   const il=[get('il0'),get('il1')],ig=[get('ig0'),get('ig1')],vc=[get('vc0'),get('vc1')],v=vc.map((a,k)=>a+rc*(il[k]-ig[k]));
   const delta=get('pllAngle'),ic=rotate(il,delta),vg=rotate(v,delta),hi=ic.map((a,k)=>get('hi'+k,a)),hv=vg.map((a,k)=>get('hv'+k,a));
   const P=dot(v,ig),Q=v[1]*ig[0]-v[0]*ig[1],pf=get('pf',P),qf=get('qf',Q),dc=get('dcVoltage',1);
-  const normalizedQ=vg[1]/Math.max(1e-9,Math.hypot(...vg)),measured=get('pllMeasured',normalizedQ);
+  const normalizedQ=vg[1]/(pll.detector==='rated-magnitude'?1:Math.max(1e-9,Math.hypot(...vg))),measured=get('pllMeasured',normalizedQ);
   const dynamics=pll.pllEnabled?srfPll(measured,get('pllIntegral'),pll):{delta:0,integral:0};
   put('pllAngle',dynamics.delta);put('pllIntegral',dynamics.integral);put('pllMeasured',(normalizedQ-measured)/(pll.pllFilterMs/1000));
   const errors=frozenOuter?null:[p.dMode==='Vdc'?1+u[0]-get('dcMeasured',dc):op.P+u[0]-pf,p.qMode==='Vac'?op.V+u[1]-Math.hypot(...hv):op.Q+u[1]-qf];

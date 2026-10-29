@@ -12,7 +12,7 @@ async function fixture(t){
  const root=await mkdtemp(path.join(tmpdir(),'gfl-release-'));t.after(()=>rm(root,{recursive:true,force:true}));
  for(const dir of ['scripts','ui','analysis','components','core','project','examples'])await mkdir(path.join(root,dir));
  await cp(new URL('../scripts/build-static.mjs',import.meta.url),path.join(root,'scripts/build-static.mjs'));
- for(const name of ['index','gfl','gfm','pcc','pq'])await writeFile(path.join(root,name+'.html'),'<script type="module" src="./ui/entry.js?old=1"></script><link rel="stylesheet" href="./ui/view.css">');
+ for(const name of ['index','gfl','gfm','pcc','pq','structure'])await writeFile(path.join(root,name+'.html'),'<script type="module" src="./ui/entry.js?old=1"></script><link rel="stylesheet" href="./ui/view.css">');
  await writeFile(path.join(root,'ui/entry.js'),"import '../analysis/model.js'; const worker=new Worker(new URL('../ui/worker.js',import.meta.url));\n");
  await writeFile(path.join(root,'ui/worker.js'),"import '../analysis/model.js';\n");
  await writeFile(path.join(root,'analysis/model.js'),'export const version=1;\n');

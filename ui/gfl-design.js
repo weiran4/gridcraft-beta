@@ -1,3 +1,5 @@
+import {dqDefaults} from '../analysis/gfl-dq-model.js';
+import {mountInputSources} from './input-sources.js';
 import {readDqSettings,saveDqSettings} from '../project/gfl-dq-settings.js';
 import {assertDqApplication} from '../analysis/gfl-dq-analysis.js';
 import {listManualCandidates,saveManualCandidate,renameManualCandidate,deleteManualCandidate} from '../project/gfl-manual-candidates.js';
@@ -7,13 +9,13 @@ import {readGflModelInput,modelFacts,validateTuningRequest} from '../analysis/gf
 import {evaluateGfl} from '../analysis/gfl-linear-evaluation.js';
 import {gflLinearModels} from '../analysis/gfl-linear-model.js';
 import {linearStepMetrics} from '../analysis/gfl-step-metrics.js';
-import {createTuningState,previewCandidate,applyCandidate,restoreAppliedGains,tuningSnapshot} from '../project/gfl-tuning-state.js';
+import {createTuningState,previewCandidate,applyCandidate,restoreAppliedGains,tuningSnapshot,saveTrialGains} from '../project/gfl-tuning-state.js';
 import {buildGflAnalysisExport} from '../project/gfl-analysis-export.js';
 import {createTuningClient} from './gfl-tuning-client.js';
 import {createGflAnalysisClient} from './gfl-analysis-client.js';
 import {createGflMainlineApplicationController,readGflApplicationContext} from '../project/gfl-analysis-evidence.js';
 import {readGflAnalysisSettings,saveGflAnalysisSettings,resolveGflSnapshot} from '../project/gfl-analysis-settings.js';
-import {gflFingerprint,gflNumericalPolicy} from '../analysis/gfl-analysis-contract.js';
+import {gflFingerprint} from '../analysis/gfl-analysis-contract.js';
 import {createGflExperimentDefinitions} from '../analysis/gfl-experiments.js';
 import {mountGflTuningPanel} from './gfl-tuning-panel.js?v=dq1';
 import {tiFromKi,kiFromTi} from '../analysis/pi-time.js?v=ti1';
@@ -36,9 +38,10 @@ const $=id=>document.getElementById(id),fmt=v=>typeof v==='number'&&Number.isFin
 const defs=[['ratedApparentPowerVA','额定 S','MVA',1e6],['ratedActivePowerW','额定 P','MW',1e6],['ratedReactivePowerVar','额定 Q','Mvar',1e6],['ratedAcVoltageV','额定 VLL','V',1],['activePowerW','运行 P','MW',1e6],['reactivePowerVar','运行 Q','Mvar',1e6],['filterResistanceOhm','滤波 Rf','Ω',1],['filterInductanceH','滤波 Lf','μH',1e-6],['dcVoltage','DC 电压','V',1],['dcResistance','DC 内阻','Ω',1],['frequencyHz','系统频率','Hz',1]];
 const targets=[['fs','控制步长 Ts','μs'],['delaySamples','计算 / PWM 纯延时','Ts']];
 const settingKeys=['fi','fp',...targets.map(([k])=>k),...filterFields.map(([k])=>k),'dMode','qMode','capSource','customCapUf','considerScr'];
-const loadSettings=stored=>({factSources:Object.fromEntries(['fs','delaySamples',...filterFields.map(([k])=>k)].map(k=>[k,stored.factSources?.[k]??(stored[k]===undefined?'legacyDefault':'user')])),considerScr:false,dMode:'P',qMode:'Q',capSource:'applied',customCapUf:null,fs:20000,fi:500,fp:50,delaySamples:0,...filterDefaults,...Object.fromEntries(settingKeys.filter(k=>stored[k]!==undefined).map(k=>[k,stored[k]])),considerScr:stored.considerScr===true});
+const loadSettings=stored=>({_inputSources:structuredClone(stored._inputSources??{}),factSources:Object.fromEntries(['fs','delaySamples',...filterFields.map(([k])=>k)].map(k=>[k,stored.factSources?.[k]??(stored[k]===undefined?'legacyDefault':'user')])),considerScr:false,dMode:'P',qMode:'Q',capSource:'applied',customCapUf:null,fs:20000,fi:500,fp:50,delaySamples:0,...filterDefaults,...Object.fromEntries(settingKeys.filter(k=>stored[k]!==undefined).map(k=>[k,stored[k]])),considerScr:stored.considerScr===true});
 const shared=projectStore(localStorage,parseProject,serializeProject);
 let project,id,settings,gains,manual=false,input,design,recommended,models,gainBank={},valid=false;
+let tableSources;
 let displayedSweep=null,bodeWidth=0,manualBode=null;
 function drawBode(){
  const host=$('bodePlot'),preview=$('bodePiSource')?.value==='comparison',e=manualBode?.evaluation;
@@ -67,7 +70,7 @@ const client=createTuningClient({workerFactory:()=>new Worker(new URL('./gfl-tun
 }});
 const currentClient=createGflAnalysisClient({workerFactory:()=>new Worker(new URL('./gfl-analysis-worker.js',import.meta.url),{type:'module'}),onEvent:event=>{
  if(event.type==='started'){currentEvaluation=null;currentStale=false;currentMessage='正在校核当前 PI 的联立模型…';}
- else if(event.type==='result'){if(event.requestKey!==currentKey||!valid||!mainlineSelected(project))return;currentEvaluation=event.result;currentMessage='';currentStale=false;$('gainMode').textContent='当前 PI · 完整外环 '+event.result.stability.status+'；响应 '+event.result.responseQuality+'；求解 '+event.result.solveStatus;}
+ else if(event.type==='result'){if(event.requestKey!==currentKey||!valid||!mainlineSelected(project))return;currentEvaluation=event.result;currentMessage='';currentStale=false;$('gainMode').textContent=(project.extensions?.gflPi?.[id]?.advisor?.applicationStatus==='trial'?'试验 PI（未认证达标） · ':'当前 PI · ')+'完整外环 '+event.result.stability.status+'；响应 '+event.result.responseQuality+'；求解 '+event.result.solveStatus;}
  else if(event.type==='error'){currentEvaluation=null;currentStale=true;currentMessage=event.message;}
  else if(event.type==='stale'||event.type==='cancelled'){currentEvaluation=null;currentStale=true;currentMessage=event.message;}
  renderAdvisor();
@@ -88,7 +91,7 @@ function clearCurrent(reason='输入已改变，旧主线结果已清除。'){
 function updateCurrent(){
  if(analysisSuspended)return;
  try{const component=getGfl(project,id),analysis=readGflAnalysisSettings(project,id),resolved=resolveGflSnapshot({...context.modelInput,switchingFrequencyHz:component.extensions?.filterDesign?.fs??null},analysis,{...context.sourceMap,switchingFrequencyHz:'component.extensions.filterDesign.fs'});
-  const payload={snapshot:resolved,gains:structuredClone(gains),request:structuredClone(request),experiments:createGflExperimentDefinitions(),policy:gflNumericalPolicy()},requestKey=gflFingerprint('request',{kind:'evaluate',payload});
+  const payload={snapshot:resolved,gains:structuredClone(gains),request:structuredClone(request),experiments:createGflExperimentDefinitions(),policy:readGflApplicationContext(project,id).policy},requestKey=gflFingerprint('request',{kind:'evaluate',payload});
   if(currentKey!==requestKey){currentKey=requestKey;currentClient.start({kind:'evaluate',requestKey,payload});}
   updateScalarDiagnostics();
  }catch(error){currentEvaluation=null;currentStale=true;currentMessage=error.message;currentKey=null;currentClient.invalidate(error.message);}
@@ -109,10 +112,15 @@ function renderAnalysisControls(){
   const el=$(id),[key,field]=path.split('.'),value=field?a?.[key]?.[field]:a?.[key];el.disabled=!known;if(document.activeElement!==el)el.value=value??'';
  }
  const delay=$('gflMainlineDelay');if(document.activeElement!==delay)delay.value=settings.delaySamples;delay.disabled=!known;
+ const pllSuggestions={'sync.fnHz':dqDefaults.frequencyHz,'sync.damping':dqDefaults.damping,'sync.filterMs':dqDefaults.pllFilterMs},pllStored={_inputSources:{}};
+ for(const k of Object.keys(pllSuggestions)){const value=a?.sync?.[k.split('.')[1]],origin=a?.sources?.[k];if(origin!=='engineering-default')pllStored[k]=value;pllStored._inputSources[k]={kind:origin==='engineering-default'?'suggested':origin==='user'?'custom':'saved',value};}
+ mountInputSources($('gflMainlineControls'),{selector:'input[data-analysis]',key:el=>el.dataset.analysis,stored:pllStored,suggestions:pllSuggestions});
+
  $('gflAnalysisStatus').textContent=analysisUiError||(!known?'所选模型或版本未支持；原配置与 PI 已保留。':selected?currentMessage||'主线仅分析声明的单逆变器平衡 LCL 工程参考模型；没有认证或硬件稳定性保证。':'原标量模型；可选 dq 面板只作额外校核。');
 }
 function saveAnalysisControl(el,path){
  try{const value=el.type==='number'?el.valueAsNumber:el.value,[key,field]=path.split('.'),patch=field?{sync:{[field]:value}}:{[key]:value};
+  if(el.dataset.valueSource==='suggested')patch.sources={[path]:'engineering-default'};
   const next=saveGflAnalysisSettings(shared.read()??project,id,patch);analysisUiError='';el.removeAttribute('aria-invalid');application.invalidate();client.invalidate('分析模型或同步设置已改变，旧候选已过期。');receiveProject(shared.write(next));
  }catch(error){analysisUiError=error.message;el.setAttribute('aria-invalid','true');application.invalidate();client.invalidate(error.message);clearCurrent(error.message);renderAdvisor();}
 }
@@ -127,7 +135,7 @@ const application=createGflMainlineApplicationController({readProject:()=>shared
  }
 });
 const advisor=mountGflTuningPanel($('gflAdvisor'),{
- mainlineHost:$('gflMainlineResults'),getRequest:()=>request,
+ mainlineHost:$('gflMainlineResults'),getRequest:()=>request,onInputSource:(k,r)=>{settings._inputSources[k]=r;},
  onRequest:next=>{request=next;analysisSuspended=false;advisor.resume();application.invalidate();client.invalidate('整定目标已改变；现有 PI 不变。');clearCurrent('整定目标已改变，旧可应用结论已清除。');save();if(valid)plot();renderAdvisor();},
  onAnalyze:()=>refresh(false,false),onSearch:generateCandidates,onCancel:()=>{analysisSuspended=true;advisor.suspend('已取消校核；试调草稿保留，点击分析当前 PI 可继续。');application.cancel();client.cancel();currentClient.cancel();scalarDiagnosticClient.cancel();comparisonDiagnosticClient.cancel();advisorStale=true;renderAdvisor();},
  onSelect:value=>{advisorSelected=value;renderAdvisor();},onApply:applySelected,onRestore:restoreSelected,
@@ -136,11 +144,11 @@ const advisor=mountGflTuningPanel($('gflAdvisor'),{
  onManualStart:()=>{const wasSuspended=analysisSuspended;analysisSuspended=false;advisor.resume();if(wasSuspended&&valid&&mainlineSelected(project)){currentKey=null;plot();}application.invalidate();if(client.busy)client.cancel();},
  onManualComparison:value=>{selectedBode=value.active?value:null;manualBode=value.active?{...value,evaluation:value.evaluation?.scalarDiagnostics??value.evaluation}:null;if($('bodePiSource'))$('bodePiSource').value=value.active?'comparison':'current';if(mainlineSelected(project))updateScalarDiagnostics();drawBode();},
  onComparisonSelection:value=>{selectedBode=value;if(mainlineSelected(project))updateScalarDiagnostics();},
- onManualSave:saveNamedManual,onManualRename:renameNamedManual,onManualDelete:deleteNamedManual,onManualApply:applyNamedManual
+ onManualTrial:saveManualTrial,onManualSave:saveNamedManual,onManualRename:renameNamedManual,onManualDelete:deleteNamedManual,onManualApply:applyNamedManual
 });
 function renderAdvisor(){if(!settings)return;renderAnalysisControls();if($('modelScope'))$('modelScope').textContent=gflModelScope(settings,readGflAnalysisSettings(project,id),context?.modelInput);const stored=project?.extensions?.gflPi?.[id];let coupled={},coupledError=null;
  if(mainlineSelected(project))try{const applicationContext=readGflApplicationContext(project,id);coupled={applicationContext,resolvedSnapshot:applicationContext.snapshot,experiments:applicationContext.experiments,policy:applicationContext.policy};}catch(error){coupledError=error.message;}
- advisor.render({...coupled,mainlineSelected:mainlineSelected(project),currentBusy:currentClient.busy,currentStale,analysisSettings:readGflAnalysisSettings(project,id),dqInput:{...context?.modelInput,switchingFrequencyHz:getGfl(project,id).extensions?.filterDesign?.fs??null},dqSettings:{...readDqSettings(project,id),...(mainlineSelected(project)?{enabled:false}:{})},manualCandidates:listManualCandidates(project,id,modeKey()),modelInput:context?.modelInput,currentGains:gains,request,current:currentEvaluation,result:advisorResult,selectedId:advisorSelected,busy:client.busy||application.busy,message:analysisUiError||coupledError||advisorMessage,stale:advisorStale,invalid:!valid||!!coupledError||!!analysisUiError,canRestore:Boolean(stored?.advisor?.undo&&stored.advisor.undo.mode===modeKey()),diagnostics:context?.diagnostics??[],labels:{P:settings.dMode,Q:settings.qMode}});}
+ advisor.render({inputSources:settings._inputSources,requestStored:stored?.advisor?.request,...coupled,mainlineSelected:mainlineSelected(project),currentBusy:currentClient.busy,currentStale,analysisSettings:readGflAnalysisSettings(project,id),dqInput:{...context?.modelInput,switchingFrequencyHz:getGfl(project,id).extensions?.filterDesign?.fs??null},dqSettings:{...readDqSettings(project,id),...(mainlineSelected(project)?{enabled:false}:{})},manualCandidates:listManualCandidates(project,id,modeKey()),modelInput:context?.modelInput,currentGains:gains,request,current:currentEvaluation,result:advisorResult,selectedId:advisorSelected,busy:client.busy||application.busy,message:analysisUiError||coupledError||advisorMessage,stale:advisorStale,invalid:!valid||!!coupledError||!!analysisUiError,canRestore:Boolean(stored?.advisor?.undo&&stored.advisor.undo.mode===modeKey()),diagnostics:context?.diagnostics??[],labels:{P:settings.dMode,Q:settings.qMode}});}
 function generateCandidates(){
  const v=validateTuningRequest(request);if(!v.valid){advisorMessage='整定目标无效：'+v.errors.map(e=>e.message).join('；');renderAdvisor();return;}
  if(!valid){advisorMessage='请补齐有效的模型事实参数；目标设置不影响现有 PI 分析。';renderAdvisor();return;}
@@ -175,6 +183,7 @@ function saveNamedManual(value){
 }
 function renameNamedManual(candidateId,name){project=shared.write(renameManualCandidate(shared.read()??project,id,candidateId,name));renderAdvisor();}
 function deleteNamedManual(candidateId){project=shared.write(deleteManualCandidate(shared.read()??project,id,candidateId));renderAdvisor();}
+function saveManualTrial(value){const latest=shared.read()??project;if(value.contextKey!==manualLatestKey(latest))throw Error('工程已变化，请重新试调。');application.invalidate();const next=saveTrialGains(latest,id,value.gains,tuningSnapshot(latest));receiveProject(shared.write(next));advisorMessage='已保存为试验 PI（未认证达标），可恢复应用前 PI。';renderAdvisor();}
 function applyNamedManual(candidate,key){try{
  const selectedProject=shared.read()??project;
  if(mainlineSelected(selectedProject)){application.apply({ibrId:id,candidate,contextKey:key,searchComplete:true});return;}
@@ -190,7 +199,7 @@ function applyNamedManual(candidate,key){try{
 const modeKey=()=>settings.dMode+'/'+settings.qMode;
 const loopLabel=k=>k==='P'?settings.dMode:k==='Q'?settings.qMode:k;
 function rememberGains(){if(gains)gainBank[modeKey()]={gains:structuredClone(gains),manual};}
-function save(){project.extensions??={};project.extensions.gflPi??={};const previous=project.extensions.gflPi[id]??{};
+function save(){if(tableSources)settings._inputSources={...settings._inputSources,...tableSources.read()};project.extensions??={};project.extensions.gflPi??={};const previous=project.extensions.gflPi[id]??{};
  const stored={...previous,...settings,manual,gainBank,advisor:{...(previous.advisor??{}),request:structuredClone(request)}};
  if(gains)stored.gains=structuredClone(gains);else delete stored.gains;project.extensions.gflPi[id]=stored;
  const merged=shared.write(project);if(serializeProject(merged)!==serializeProject(project))queueMicrotask(()=>receiveProject(shared.read()));
@@ -212,6 +221,10 @@ function drawTables(){$('considerScr').checked=settings.considerScr===true;const
  const step=group(tables[1],'step-inputs');step.append(host.querySelector(':scope > p.small-note'),$('controlStepSummary'));
  outer.classList.add('input-group');filters.classList.add('input-group');
  const inputRow=document.createElement('div');inputRow.className='parameter-input-grid';inputRow.append(outer,group(tables[0],'electrical-inputs'),step,filters);host.replaceChildren(inputRow);
+ const storedSources={...(project.extensions?.gflPi?.[id]??{}),_inputSources:settings._inputSources};
+ for(const [k,v] of Object.entries(settings.factSources??{}))if(v==='legacyDefault')delete storedSources[k];
+ tableSources=mountInputSources(host,{selector:'input[type="number"]',key:el=>el.dataset.field||el.dataset.setting,stored:storedSources,suggestions:{fs:50,delaySamples:0,...filterDefaults},linked:el=>el.dataset.field?'project':null,onChange:(k,r)=>{settings._inputSources[k]=r;}});
+
  $('parameterTables').onchange=e=>{
   const el=e.target,mode=el.dataset.mode,k=el.dataset.field||el.dataset.setting;
   if(mode){

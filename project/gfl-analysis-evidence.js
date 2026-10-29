@@ -64,7 +64,8 @@ function evaluationSummary(evaluation){
 /** Resolve the latest persisted facts, including sync sources and the existing
  * filter-design PWM source. Baseline PI/manual/bank identity also fences writes.
  * Experiments/policy are explicit task context, separate from stored settings. */
-export function readGflApplicationContext(project,ibrId,{gains=null,experiments=createGflExperimentDefinitions(),policy=gflNumericalPolicy()}={}){
+export function readGflApplicationContext(project,ibrId,{gains=null,experiments=createGflExperimentDefinitions(),policy=null}={}){
+ policy=policy??{...gflNumericalPolicy(),response:{...gflNumericalPolicy().response,maxPoints:project.extensions?.gflPi?.[ibrId]?.advisor?.request?.responseMaxPoints??20000}};
  assertGflSettlingDefinition(policy.response);
  const stored=project.extensions?.gflPi?.[ibrId]??{},facts=readGflModelInput(project,ibrId,stored);
  if(facts.inputStatus!=='valid')fail('当前模型输入无效或已改变，请重新校核。');

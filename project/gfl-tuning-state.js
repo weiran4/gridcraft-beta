@@ -13,7 +13,7 @@ export function tuningSnapshot(value){
 export function createTuningState(stored={}){
  return {mode:mode(stored),baselineGains:copy(stored.gains)??null,baselineManual:stored.manual===true,
   advisor:copy(stored.advisor)??{},candidate:null,snapshotKey:null,
-  applicationStatus:stored.gains?(stored.advisor?.appliedMode===mode(stored)&&equal(stored.advisor?.appliedGains,stored.gains)?'applied':'baseline'):'unapplied'};
+  applicationStatus:stored.gains?(stored.advisor?.appliedMode===mode(stored)&&equal(stored.advisor?.appliedGains,stored.gains)?(stored.advisor?.applicationStatus==='trial'?'trial':'applied'):'baseline'):'unapplied'};
 }
 export function previewCandidate(state,candidate,snapshotKey){return {...copy(state),candidate:copy(candidate),snapshotKey,applicationStatus:'preview'};}
 export function applyCandidate(project,ibrId,state,currentSnapshotKey){
@@ -56,6 +56,7 @@ export function restoreAppliedGains(project,ibrId,state){
  return next;
 }
 export function applicationEvidence(stored={},facts){
+ if(stored.advisor?.applicationStatus==='trial')return {status:'trial',evaluationCurrent:false,dq:{status:'unassessed',evaluationCurrent:false}};
  if(stored.analysis?.modelId==='gfl-dq-reference-v1'){
   const historical=readGflApplicationEvidence(stored),freshness=gflEvidenceFreshness(historical,facts),matches=stored.advisor?.appliedMode===mode(stored)&&equal(stored.gains,stored.advisor?.appliedGains);
   return {status:historical?.status==='unassessed'?'unassessed':matches&&freshness.evaluationCurrent?'applied':historical?'stale':stored.gains?'baseline':'unapplied',...freshness,evaluationCurrent:matches&&freshness.evaluationCurrent};
@@ -75,4 +76,15 @@ export function gflDqEvidenceExport(stored={},facts){
   mainline:{configuration:copy(stored.analysis)??null,historicalApplication:readGflApplicationEvidence(stored),
    activePointer:stored.advisor?.mainlineEvidence?.kind==='gfl-mainline-evidence-pointer'?copy(stored.advisor.mainlineEvidence):null,
    applicationAuthority:'none'}};
+}
+
+/** Explicit experiment write; never fabricates a verified application ticket. */
+export function saveTrialGains(project,ibrId,gains,expectedProjectKey){
+ if(tuningSnapshot(project)!==expectedProjectKey)throw Error('工程已变化，试验参数已过期。');
+ if(!project.components?.some(c=>c.id===ibrId&&c.type==='gfl'))throw Error('所选 GFL 不存在。');
+ validateGains(gains);const next=copy(project),s=next.extensions?.gflPi?.[ibrId];if(!s)throw Error('尚未配置 PI。');
+ const m=mode(s),undo={mode:m,gains:copy(s.gains)??null,manual:s.manual===true,gainBankEntry:copy(s.gainBank?.[m])??null};
+ s.gains=copy(gains);s.manual=true;s.gainBank={...s.gainBank,[m]:{gains:copy(gains),manual:true}};
+ s.advisor={...s.advisor,applicationStatus:'trial',targetStatus:'unassessed',appliedMode:m,appliedGains:copy(gains),undo,evaluation:null,dqVerification:null,mainlineEvidence:null,candidateSource:'trial',candidateId:null,candidateName:null,policyId:null,snapshotKey:null};
+ return next;
 }

@@ -1,3 +1,4 @@
+import {mountInputSources} from './input-sources.js';
 import {listGfmManualCandidates,saveGfmManualCandidate,renameGfmManualCandidate,deleteGfmManualCandidate,applyGfmManualCandidate} from '../project/gfm-manual-candidates.js';
 import {gfmFacts,evaluateGfm,validateGfmMode,checkGfmRequirements} from '../analysis/gfm-tuning-advisor.js';
 import {validateTuningRequest} from '../analysis/gfl-model-input.js';
@@ -6,7 +7,7 @@ import {mountGfmTuningPanel} from './gfm-tuning-panel.js?v=dq1';
 import {createTuningClient} from './gfl-tuning-client.js';
 import {gfmDiagram} from './gfm-diagram.js?v=scr1';
 import {analyzeGfmMode} from '../analysis/gfm-dynamics.js?v=scr1';
-import {gfmContext,gfmSettings,gfmModes,setGfmField} from '../project/gfm-settings.js?v=scr1';
+import {gfmContext,gfmSettings,gfmModes,gfmDefaults,setGfmField} from '../project/gfm-settings.js?v=scr1';
 import {gfmSweep,validateGfmGains} from '../analysis/gfm-pi.js?v=scr1';
 import {kiFromTi,tiFromKi} from '../analysis/pi-time.js?v=ti1';
 import {projectStore} from '../project/sync.js?v=sync1';
@@ -20,6 +21,7 @@ const targets=[['fs','控制步长 Ts','μs'],['delaySamples','纯延时 N × Ts
 const filters=[['filterPqMs','P/Q 时间常数','ms'],['filterVdcMs','Vdc 时间常数（预留）','ms'],['filterVoltageMs','交流电压时间常数','ms'],['filterCurrentMs','电感电流时间常数','ms'],['feedforwardCurrent','送网电流前馈 F','pu'],['feedforwardVoltage','电压前馈 av','pu']];
 const modeDefs={droop:[['mp','P–f 下垂','%'],['nq','Q–V 下垂','%']],vsg:[['h','虚拟惯量 H','s'],['d','频率阻尼 D','pu'],['nq','Q–V 下垂','%'],['kv','电压积分增益 Kv','s⁻¹']],sync:[['h','虚拟惯量 H','s'],['d','频率阻尼 D','pu'],['nq','Q–V 下垂','%'],['ke','励磁积分增益 Ke','s⁻¹']]};
 let project,id,settings,input,gains,tuning,coupled={},valid=false,busy=false,revision=0,pendingRemote=false;
+let settingSources,modeSources;
 let bodeWidth=0,manualBode=null;
 let currentEvaluation=null,request=validateTuningRequest({}).request,advisorResult=null,selectedId=null,stale=false,advisorMessage='',advisor;
 const emptyGains=()=>Object.fromEntries(['d','q','P','Q'].map(k=>[k,{kp:0,ki:0}]));
@@ -45,10 +47,15 @@ function renderInputs(){
  $('filters').innerHTML=filters.map(([k,l,u])=>field(k,l,u,settings[k],'setting',0,k.startsWith('feedforward')?1:undefined)).join('');
  document.querySelectorAll('[data-setting="feedforwardCurrent"], [data-setting="feedforwardVoltage"]').forEach(el=>el.disabled=!settings.considerScr);
  renderMode();
+ const stored=project.extensions?.gfmPi?.[id]??{},common={...gfmDefaults(),fs:50};
+ settingSources=mountInputSources($('gfmInputs'),{selector:'input[data-setting],input[data-electrical]',key:el=>el.dataset.setting||el.dataset.electrical,stored:{...stored,_inputSources:settings._inputSources},suggestions:common,linked:(el,k)=>el.dataset.electrical?'project':k==='fs'&&stored.fs===undefined&&project.extensions?.gfmSetup?.[id]?.controlStepSeconds>0?'project':null});
 }
 function renderMode(){
  const mode=settings.mode,m=settings.modes[mode];document.querySelectorAll('[data-mode]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.mode===mode)));
  $('modeHeading').textContent='成网参数 · '+gfmModes[mode];$('modeFields').innerHTML=modeDefs[mode].map(([k,l,u])=>field(k,l,u,m[k],'outer',.000000001)).join('');
+ const defaultMode=gfmSettings({extensions:{}},id).modes[mode],storedMode=project.extensions?.gfmPi?.[id]?.modes?.[mode]??{};
+ modeSources=mountInputSources($('modeFields'),{selector:'input[data-outer]',key:el=>mode+'.'+el.dataset.outer,stored:{...Object.fromEntries(Object.entries(storedMode).map(([k,v])=>[mode+'.'+k,v])),_inputSources:settings._inputSources},suggestions:Object.fromEntries(Object.entries(defaultMode).map(([k,v])=>[mode+'.'+k,v]))});
+
  const ref='P* = '+fmt(input.activePowerW/input.ratedVA)+' pu；Q* = '+fmt(input.reactivePowerVar/input.ratedVA)+' pu；'+(settings.considerScr?'V₀ = '+fmt(coupled[mode]?.op?.V)+' pu（当前潮流工作点）。':'成网层未参与本地标量整定。');
  const formulas={droop:'ω = 1 + mp(P* − Pf)<br>V* = V₀ + nq(Q* − Qf)<br>θ̇ = ωb·ω',vsg:'2H·ω̇ = P* − Pf − D(ω−1)<br>V̇* = Kv[(V₀−Vf)/nq + Q*−Qf]<br>θ̇ = ωb·ω',sync:'2H·ω̇ = P*/ω − Pf/ω − D(ω−1)<br>ψ̇ = Ke[(V₀−Vf)/nq + Q*−Qf]<br>V* = ω·ψ；θ̇ = ωb·ω'};
  $('modeExplanation').innerHTML=formulas[mode]+'<p>'+ref+'</p><p>ω 为 pu，θ 为 rad，ωb = 2πf₀；mp、nq 输入百分数，计算时除以 100；Pf/Qf 经 P/Q 滤波，Vf 经电压滤波。Vdc 滤波仅保存备用，本页没有 Vdc 外环。送网 P/Q 为正。</p>';
@@ -120,6 +127,7 @@ function syncCurrentGains(){
  }
 }
 function save(){
+ settings._inputSources={...settings._inputSources,...settingSources?.read(),...modeSources?.read()};
  const next=saveGfmAdvisorSettings(project,id,settings,gains,request),merged=shared.write(next);project=next;
  $('saveStatus').textContent='已同步至工程 · '+id;
  if(serializeProject(merged)!==serializeProject(project)){if(busy)pendingRemote=true;else queueMicrotask(()=>receive(shared.read()).catch(invalidate));}
@@ -132,7 +140,7 @@ async function load(p,saveAfter=false){try{
  }catch(e){project=p;settings=gfmSettings(p,id);gains=settings.gains;coupled={};try{renderInputs();renderGains();$('retune').disabled=false;}catch{}invalidate(e);}}
 function renderAdvisor(){
  if(!advisor||!settings)return;const undo=project?.extensions?.gfmPi?.[id]?.advisor?.undo;
- advisor.render({input,settings,manualCandidates:listGfmManualCandidates(project,id,settings.mode),currentGains:gains,request,current:currentEvaluation,result:advisorResult,selectedId,busy:searchClient.busy,stale,message:advisorMessage,invalid:!valid,
+ advisor.render({inputSources:settings._inputSources,requestStored:project.extensions?.gfmPi?.[id]?.advisor?.request,input,settings,manualCandidates:listGfmManualCandidates(project,id,settings.mode),currentGains:gains,request,current:currentEvaluation,result:advisorResult,selectedId,busy:searchClient.busy,stale,message:advisorMessage,invalid:!valid,
   canRestore:Boolean(undo&&undo.mode===settings.mode),modeName:gfmModes[settings.mode]});
 }
 function generateCandidates(){
@@ -165,7 +173,7 @@ advisor=mountGfmTuningPanel($('gfmAdvisor'),{
  onManualSave:saveManual,onManualApply:applyManual,
  onManualRename:(candidateId,name)=>{project=shared.write(renameGfmManualCandidate(shared.read()??project,id,candidateId,name));renderAdvisor();},
  onManualDelete:candidateId=>{project=shared.write(deleteGfmManualCandidate(shared.read()??project,id,candidateId));renderAdvisor();},
- getRequest:()=>request,onRequest:next=>{request=next;searchClient.invalidate('整定目标已改变；当前 PI 不变。');save();renderAdvisor();},
+ getRequest:()=>request,onInputSource:(k,r)=>{settings._inputSources[k]=r;},onRequest:next=>{request=next;searchClient.invalidate('整定目标已改变；当前 PI 不变。');save();renderAdvisor();},
  onAnalyze:()=>apply(structuredClone(project),structuredClone(settings),gains,false,false).catch(invalidate),
  onSearch:generateCandidates,onCancel:()=>searchClient.cancel(),onSelect:id=>{selectedId=id;renderAdvisor();},onApply:applySelected,onRestore:restoreSelected
 });
@@ -175,6 +183,7 @@ document.addEventListener('change',async e=>{
  const el=e.target,k=el.dataset.electrical||el.dataset.setting||el.dataset.outer,tag=el.dataset.gain;const scr=el.id==='considerScr';if((!k&&!tag&&!scr)||busy)return;
  try{el.removeAttribute('aria-invalid');if(!el.checkValidity())throw Error('请输入有效参数。');checkFields();
   const p=structuredClone(project),s=structuredClone(settings),g=structuredClone(gains??emptyGains());
+  s._inputSources={...settings._inputSources,...settingSources?.read(),...modeSources?.read()};
   if(scr){s.considerScr=el.checked;}
   else if(tag){const [loop,name]=tag.split('.'),value=name==='ti'?kiFromTi(el.value):el.valueAsNumber;if(!Number.isFinite(value)||value<0)throw Error('Kp 必须非负；Ti 必须为正数或 ∞。');g[loop][name==='ti'?'ki':'kp']=value;s.manual=true;}
   else{const value=el.valueAsNumber;if(!Number.isFinite(value))throw Error('请输入有限数值。');
@@ -193,3 +202,5 @@ $('exportPi').onclick=()=>{if(!valid||busy||!gains)return;const parameters=Objec
 try{const p=shared.read();if(!p)throw Error('请先在电路页面载入 BESS_GFM_demo，再选择 GFM 的 PI 参数设计。');shared.accept(p);id=new URLSearchParams(location.search).get('ibr');await load(p);}catch(e){invalidate(e);}
 window.addEventListener('storage',e=>{if(e.key===key)receive(shared.read()).catch(invalidate);});
 window.addEventListener('pageshow',()=>receive(shared.read()).catch(invalidate));
+
+const structureLink=document.getElementById("structureLink");if(structureLink)structureLink.href="structure.html"+location.search;

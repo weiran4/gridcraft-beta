@@ -1,3 +1,4 @@
+import {mountInputSources} from './input-sources.js';
 import {operatingSummary} from './operating-summary.js?v=pq1';
 import {operatingPoint} from '../analysis/operating-point.js?v=pq1';
 import {designDcVoltage,dcDesignCandidates,dcDesignContext,dcInputIssues} from '../analysis/dc-voltage.js?v=pq1';
@@ -32,11 +33,13 @@ export function mountDcDesign(host,project,c,save,apply){
  </section><section class="derived-equations filter-design-formulas"><h3>03 · 设计公式与定义</h3><p class="help-label">悬停或 Tab 聚焦变量查看值与单位；Vdc 和 m 使用窗口选用值。</p>${formulas(settings.designMode)}</section></div>`;
  host.querySelector('[data-dc="ibrId"]').value=settings.ibrId;host.querySelector('[data-dc="modulation"]').value=settings.modulation;host.querySelector('[data-dc="designMode"]').value=settings.designMode;
  let shownMode=settings.designMode;
+ const sources=mountInputSources(host,{selector:'input[data-dc]',key:el=>el.dataset.dc,stored:c.extensions?.dcDesign||{},suggestions:{marginPercent:5},linked:(el,k)=>k==='phaseAngleDeg'&&host.querySelector('[data-dc=designMode]').value==='operating'?'derived':k==='selectedV'&&stored.selectedV==null?'project':null});
  const inputs=[...host.querySelectorAll('[data-dc]')],context=host.querySelector('[data-dc-context]'),result=host.querySelector('[data-dc-result]'),preview=host.querySelector('[data-dc-preview]'),status=host.querySelector('[data-dc-applied]'),button=host.querySelector('[data-dc-apply]'),min=host.querySelector('[data-dc-min]'),angleButton=host.querySelector('[data-dc-angle]'),setVariables=installFormulaTooltip(host);
- const read=()=>Object.fromEntries(inputs.map(el=>[el.dataset.dc,el.tagName==='SELECT'?el.value:el.value===''?null:el.valueAsNumber]));
+ const read=()=>({...Object.fromEntries(inputs.map(el=>[el.dataset.dc,el.tagName==='SELECT'?el.value:el.value===''?null:el.valueAsNumber])),_inputSources:sources.read()});
  const calc=()=>{const values=read(),ctx=dcDesignContext(project,c.id,values.ibrId);return {values,ctx,r:designDcVoltage({...ctx,...values})};};
  const persist=()=>{const p=read();if(!Object.values(p).some(v=>typeof v==='number'&&!Number.isFinite(v)))save(p);};
  function update(){
+  queueMicrotask(sources.refresh);
   const mode=read().designMode,angleField=host.querySelector('[data-dc="phaseAngleDeg"]');
   angleField.disabled=mode==='operating';angleButton.disabled=mode==='operating';
   if(mode==='operating')try{angleField.value=operatingPoint(dcDesignContext(project,c.id,read().ibrId)).angleDeg;}catch{}
@@ -51,7 +54,7 @@ export function mountDcDesign(host,project,c,save,apply){
   }catch(e){context.innerHTML='';result.innerHTML='<div class="note error">'+esc(e.message)+'</div>';preview.innerHTML='';button.disabled=true;min.disabled=true;angleButton.disabled=!candidates.some(x=>x.id===read().ibrId);setVariables({});}
  }
  inputs.forEach(el=>{el.oninput=()=>{status.textContent='';update();};el.onchange=()=>{status.textContent='';update();persist();};});
- min.onclick=()=>{try{const {r}=calc();host.querySelector('[data-dc="selectedV"]').value=Math.ceil(r.minimumV);status.textContent='';update();persist();}catch{}};
+ min.onclick=()=>{try{const {r}=calc();host.querySelector('[data-dc="selectedV"]').value=Math.ceil(r.minimumV);status.textContent='';sources.set('selectedV','derived');update();persist();}catch{}};
  angleButton.onclick=()=>{try{host.querySelector('[data-dc="phaseAngleDeg"]').value=dcDesignContext(project,c.id,read().ibrId).referenceAngleDeg;status.textContent='';update();persist();}catch{}};
  button.onclick=()=>{try{const {values,r}=calc();if(r.pass){apply(values.selectedV,values);update();status.textContent='已应用到 '+c.name+'，DC 电压已同步。';}}catch{update();}};
  update();

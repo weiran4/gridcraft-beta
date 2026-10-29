@@ -82,7 +82,7 @@ function searchExport(search,project,ibrId,resolved,stored,request,legacy){
 export function buildGflAnalysisExport({project,ibrId,snapshot=null,evaluation=null,search=null,exportedAt=new Date().toISOString()}){
  const stored=project.extensions?.gflPi?.[ibrId]??{},settings=readGflAnalysisSettings(project,ibrId),supported=known(settings),
   resolved=currentFacts(project,ibrId,settings),requestCheck=currentRequest(stored),request=requestCheck.request,gains=stored.gains??null,
-  legacy=settings?.modelId==='legacy-scalar'&&supported,policy=gflNumericalPolicy(),reasons=[];
+  legacy=settings?.modelId==='legacy-scalar'&&supported,policy={...gflNumericalPolicy(),response:{...gflNumericalPolicy().response,maxPoints:request.responseMaxPoints??20000}},reasons=[];
  const callerCurrent=snapshot===null||same(snapshot,resolved.snapshot);
  const scalar=legacy?(evaluation?.legacyEvaluation??evaluation):null;
  const completed=legacy?!!scalar?.loops&&(!evaluation.solveStatus||evaluation.solveStatus==='completed'):evaluation?.solveStatus==='completed'&&!!evaluation.model;

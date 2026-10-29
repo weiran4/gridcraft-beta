@@ -44,9 +44,11 @@ export function readGflModelInput(project,ibrId,settings={}){
  return {inputStatus:diagnostics.some(x=>x.severity==='error')?'invalid':diagnostics.some(x=>x.severity==='incomplete')?'incomplete':'valid',modelInput,sourceMap,diagnostics};
 }
 export function validateTuningRequest(raw={}){
- const request={mode:'automatic',focus:'balanced',minMargin:60,preferredMargin:60,separationRatio:5,tolerance:.05,allowReduction:false,
+ const request={enforceScalarMargin:true,responseMaxPoints:20000,mode:'automatic',focus:'balanced',minMargin:60,preferredMargin:60,separationRatio:5,tolerance:.05,allowReduction:false,
   fi:null,fp:null,minimumFi:null,minimumFp:null,maxOvershootPercent:null,maxSettlingSeconds:null,maxSteadyStateErrorPercent:null,currentTargets:null,crossAxisLimits:null,...raw},errors=[];
  const bad=(field,message)=>errors.push({field,message});
+ if(typeof request.enforceScalarMargin!=='boolean')bad('enforceScalarMargin','标量裕度约束须为布尔值。');
+ if(![20000,60000].includes(request.responseMaxPoints))bad('responseMaxPoints','采样预算须为 20000 或 60000。');
  if(!['automatic','target'].includes(request.mode))bad('mode','选择自动推荐或指定交越。');
  if(!['balanced','tracking'].includes(request.focus))bad('focus','本版未定义扰动注入模型，仅支持均衡或参考跟踪。');
  for(const k of ['minMargin','preferredMargin'])if(!Number.isFinite(request[k])||request[k]<=0||request[k]>=180)bad(k,'裕度须在 0° 与 180° 之间。');
